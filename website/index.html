@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Young Kazah Language (YKL / APL) - Next-Gen Industrial System Programming</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --surface: rgba(22, 30, 48, 0.6);
+            --accent: #00f2fe;
+            --accent-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --text-primary: #ffffff;
+            --text-secondary: #94a3b8;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+        header {
+            padding: 2rem 5%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .logo { font-weight: 800; font-size: 1.5rem; background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        nav a { color: var(--text-secondary); text-decoration: none; margin-left: 2rem; font-weight: 600; transition: color 0.3s; }
+        nav a:hover { color: var(--accent); }
+        .hero {
+            padding: 8rem 5%;
+            text-align: center;
+            position: relative;
+        }
+        .hero h1 {
+            font-size: 4rem;
+            font-weight: 800;
+            margin-bottom: 1.5rem;
+            line-height: 1.2;
+        }
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 700px;
+            margin: 0 auto 3rem;
+        }
+        .btn {
+            padding: 1rem 2.5rem;
+            border-radius: 50px;
+            background: var(--accent-gradient);
+            color: #000;
+            font-weight: 800;
+            text-decoration: none;
+            display: inline-block;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(0, 242, 254, 0.4);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            padding: 4rem 5%;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 2.5rem;
+            border-radius: 20px;
+            backdrop-filter: blur(16px);
+            transition: transform 0.3s;
+        }
+        .card:hover { transform: translateY(-5px); border-color: var(--accent); }
+        .card h3 { font-size: 1.5rem; margin-bottom: 1rem; color: var(--accent); }
+        .code-showcase {
+            margin: 4rem 5%;
+            background: #111726;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 2rem;
+            font-family: 'JetBrains Mono', monospace;
+            overflow-x: auto;
+        }
+        pre { color: #a5b4fc; font-size: 1rem; }
+        .kw { color: #f43f5e; }
+        .fn { color: #38bdf8; }
+        .str { color: #4ade80; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">Young Kazah (YKL)</div>
+        <nav>
+            <a href="#features">Features</a>
+            <a href="#code">Syntax</a>
+            <a href="https://github.com">GitHub</a>
+        </nav>
+    </header>
+    <section class="hero">
+        <h1>Next-Gen Industrial Programming Language</h1>
+        <p>Combining C++ raw speed, Rust memory safety without garbage collection, and Go simplicity. Built for production systems, green concurrency, and zero-cost abstractions.</p>
+        <a href="#code" class="btn">Get Started with APL</a>
+    </section>
+    <section id="features" class="grid">
+        <div class="card">
+            <h3>⚡ C/C++ Performance</h3>
+            <p>Optimized SSA Middle Representation (MIR) lowering directly to highly-efficient C code or machine code. Zero overhead.</p>
+        </div>
+        <div class="card">
+            <h3>🛡️ Memory Safety</h3>
+            <p>Built-in compile-time borrow checker and ownership tracking. No use-after-free, no data races, and no GC latency.</p>
+        </div>
+        <div class="card">
+            <h3>🧵 Green Concurrency</h3>
+            <p>Work-stealing M:N fiber scheduler with lightweight coroutines and lock-free message passing channels.</p>
+        </div>
+    </section>
+    <section id="code" class="code-showcase">
+<pre><span class="kw">package</span> main
+
+<span class="kw">import</span> std::net::HttpServer;
+
+<span class="kw">fn</span> <span class="fn">main</span>() -> <span class="kw">i32</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> server = HttpServer::bind(8080);
+    <span class="kw">let</span> msg = <span class="str">"Hello from Young Kazah Language!"</span>;
+    println(msg);
+    <span class="kw">return</span> 0;
+}</pre>
+    </section>
+</body>
+</html>

@@ -1,0 +1,4 @@
+
+import "std::fs";
+fn main() -> i32 { 0 }
+

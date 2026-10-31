@@ -1,0 +1,31 @@
+enum Option<T> {
+    None,
+    Some(T)
+}
+
+fn unwrap_or<T>(opt: Option<T>, default: T) -> T {
+    match opt {
+        Option::Some(val) => {
+            return val;
+        }
+        Option::None => {
+            return default;
+        }
+    }
+}
+
+fn main() -> i32 {
+    let a = Option::Some(42);
+    let b = Option::None;
+    
+    let res1 = unwrap_or(a, 0);
+    let res2 = unwrap_or(b, 999);
+    
+    println("res1:");
+    println(res1);
+    
+    println("res2:");
+    println(res2);
+    
+    return 0;
+}

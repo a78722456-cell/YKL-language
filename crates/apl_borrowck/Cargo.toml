@@ -1,0 +1,10 @@
+[package]
+name = "apl_borrowck"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+apl_ast = { path = "../apl_ast" }
+apl_hir = { path = "../apl_hir" }
+apl_mir = { path = "../apl_mir" }
+anyhow = "1.0"

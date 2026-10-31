@@ -1,0 +1,8 @@
+[package]
+name = "apl_fmt"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+apl_ast = { path = "../apl_ast" }
+

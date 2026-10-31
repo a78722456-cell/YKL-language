@@ -1,0 +1,48 @@
+import "std::math";
+
+import "std::vec";
+
+import "std::map";
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() -> i32 {
+    println("--- Testing std::math ---");
+    println(math_abs(0 - 42));
+    println(math_max(10, 20));
+    println(math_mod(17, 5));
+    let mut rnd = Random_new(12345);
+    println("Random 1:");
+    println(Random_next(&mut rnd));
+    println("Random 2:");
+    println(Random_next(&mut rnd));
+    println("--- Testing std::vec ---");
+    let mut v = Vec_new(0);
+    Vec_push(&mut v, 100);
+    Vec_push(&mut v, 200);
+    Vec_push(&mut v, 300);
+    println(Vec_get(&v, 1));
+    Vec_set(&mut v, 1, 999);
+    println(Vec_get(&v, 1));
+    println("--- Testing std::map ---");
+    let dummy_p = Point { x: 0, y: 0 };
+    let mut m = IntMap_new(dummy_p);
+    let p1 = Point { x: 10, y: 20 };
+    let p2 = Point { x: 30, y: 40 };
+    IntMap_insert(&mut m, 42, p1);
+    IntMap_insert(&mut m, 100, p2);
+    let res = IntMap_get(&m, 42, dummy_p);
+    println("Map Get 42 (x):");
+    println(res.x);
+    let res2 = IntMap_get(&m, 100, dummy_p);
+    println("Map Get 100 (y):");
+    println(res2.y);
+    let res3 = IntMap_get(&m, 999, dummy_p);
+    println("Map Get 999 (missing, expects 0):");
+    println(res3.x);
+    println("All std tests passed!");
+    return 0;
+}

@@ -1,0 +1,6 @@
+error[E0302]: type mismatch: expected 'I32', got 'String'
+ --> type_mismatch.yk:1:12
+  |
+1 | fn main() {
+  |            ^ error occurred here
+  |

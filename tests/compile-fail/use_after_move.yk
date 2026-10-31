@@ -1,0 +1,8 @@
+
+struct MyStruct { val: i32 }
+fn main() {
+    let x = MyStruct { val: 42 };
+    let y = x; // moves x
+    let z = x; //~ ERROR: UseAfterMove
+}
+

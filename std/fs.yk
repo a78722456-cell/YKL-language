@@ -1,0 +1,42 @@
+
+import "std::result";
+
+extern {
+    fn open(path: Ptr, flags: i32) -> i32;
+    fn read(fd: i32, buf: Ptr, count: i32) -> i32;
+    fn close(fd: i32) -> i32;
+    fn malloc(size: i32) -> Ptr;
+    fn free(ptr: Ptr) -> i32;
+}
+
+fn fs_open(path: string) -> Result<i32, i32> {
+    let fd = open(path, 0);
+    if fd < 0 {
+        return Result::Err(fd);
+    }
+    Result::Ok(fd)
+}
+
+fn fs_read_raw(fd: i32, size: i32) -> Result<Ptr, i32> {
+    let buf = malloc(size);
+    let bytes_read = read(fd, buf, size - 1);
+    if bytes_read < 0 {
+        free(buf);
+        return Result::Err(bytes_read);
+    }
+    Result::Ok(buf)
+}
+
+fn fs_free_raw(buf: Ptr) -> Result<i32, i32> {
+    let res = free(buf);
+    Result::Ok(res)
+}
+
+fn fs_close(fd: i32) -> Result<i32, i32> {
+    let res = close(fd);
+    if res < 0 {
+        return Result::Err(res);
+    }
+    Result::Ok(res)
+}
+

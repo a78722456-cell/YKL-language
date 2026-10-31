@@ -1,0 +1,6 @@
+fn main() {
+    let mut x = 5;
+    let r1 = &mut x;
+    let r2 = &mut x; //~ ERROR: BorrowConflict
+    let z = r1; // Keep r1 alive!
+}

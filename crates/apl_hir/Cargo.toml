@@ -1,0 +1,12 @@
+[package]
+name = "apl_hir"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+apl_ast = { version = "0.1.0", path = "../apl_ast" }
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true

@@ -1,0 +1,18 @@
+error[E0302]: type mismatch: expected 'Named("I32", [])', got 'I32'
+ --> unknown_field.yk:7:42
+  |
+7 |     let p = Point { x: 10, y: 20, z: 30 };
+  |                                          ^ error occurred here
+  |
+error[E0302]: type mismatch: expected 'Named("I32", [])', got 'I32'
+ --> unknown_field.yk:7:42
+  |
+7 |     let p = Point { x: 10, y: 20, z: 30 };
+  |                                          ^ error occurred here
+  |
+error[E0402]: unknown field 'z' in struct 'Point'
+ --> unknown_field.yk:7:42
+  |
+7 |     let p = Point { x: 10, y: 20, z: 30 };
+  |                                          ^ error occurred here
+  |

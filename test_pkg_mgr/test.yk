@@ -1,0 +1,1 @@
+import "github.com/testuser/testlib/math"; fn main() -> i32 { return add(10, 20); }

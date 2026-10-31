@@ -1,0 +1,40 @@
+fn math_mod(a: i32, b: i32) -> i32 {
+    let div = a / b;
+    return a - div * b;
+}
+
+fn math_abs(a: i32) -> i32 {
+    if a < 0 {
+        return 0 - a;
+    };
+    return a;
+}
+
+fn math_min(a: i32, b: i32) -> i32 {
+    if a < b {
+        return a;
+    };
+    return b;
+}
+
+fn math_max(a: i32, b: i32) -> i32 {
+    if a > b {
+        return a;
+    };
+    return b;
+}
+
+struct Random {
+    state: i32,
+}
+
+fn Random_new(seed: i32) -> Random {
+    return Random { state: seed };
+}
+
+fn Random_next(r: &mut Random) -> i32 {
+    let a = 11035;
+    let c = 12345;
+    r.state = math_abs(r.state * a + c);
+    return math_mod(r.state, 1000000);
+}

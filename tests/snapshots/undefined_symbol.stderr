@@ -1,0 +1,6 @@
+error[E0301]: undefined symbol 'unknown'
+ --> undefined_symbol.yk:2:20
+  |
+2 |     let x = unknown;
+  |                    ^ error occurred here
+  |

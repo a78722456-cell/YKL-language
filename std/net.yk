@@ -1,0 +1,70 @@
+import "std::result";
+
+extern {
+    fn socket(domain: i32, type: i32, protocol: i32) -> i32;
+    fn bind(sockfd: i32, addr: Ptr, addrlen: i32) -> i32;
+    fn listen(sockfd: i32, backlog: i32) -> i32;
+    fn accept(sockfd: i32, addr: Ptr, addrlen: Ptr) -> i32;
+    fn send(sockfd: i32, buf: Ptr, len: i32, flags: i32) -> i32;
+    fn recv(sockfd: i32, buf: Ptr, len: i32, flags: i32) -> i32;
+    fn close(fd: i32) -> i32;
+    fn malloc(size: i32) -> Ptr;
+    fn free(ptr: Ptr) -> i32;
+    fn yk_net_create_server_addr(port: i32) -> Ptr;
+    fn strlen(s: Ptr) -> i32;
+}
+
+fn net_tcp_server(port: i32) -> Result<i32, i32> {
+    let sockfd = socket(2, 1, 0);
+    if sockfd < 0 {
+        Result::Err(sockfd)
+    };
+    let addr = yk_net_create_server_addr(port);
+    let bind_res = bind(sockfd, addr, 16);
+    free(addr);
+    if bind_res < 0 {
+        close(sockfd);
+        Result::Err(bind_res)
+    };
+    let listen_res = listen(sockfd, 10);
+    if listen_res < 0 {
+        close(sockfd);
+        Result::Err(listen_res)
+    };
+    Result::Ok(sockfd)
+}
+
+fn net_accept(server_fd: i32) -> Result<i32, i32> {
+    let client_fd = accept(server_fd, 0, 0);
+    if client_fd < 0 {
+        Result::Err(client_fd)
+    };
+    Result::Ok(client_fd)
+}
+
+fn net_send(sockfd: i32, data: string) -> Result<i32, i32> {
+    let len = strlen(data);
+    let bytes_sent = send(sockfd, data, len, 0);
+    if bytes_sent < 0 {
+        Result::Err(bytes_sent)
+    };
+    Result::Ok(bytes_sent)
+}
+
+fn net_recv_raw(sockfd: i32, size: i32) -> Result<Ptr, i32> {
+    let buf = malloc(size);
+    let bytes_recv = recv(sockfd, buf, size - 1, 0);
+    if bytes_recv < 0 {
+        free(buf);
+        Result::Err(bytes_recv)
+    };
+    Result::Ok(buf)
+}
+
+fn net_close(fd: i32) -> Result<i32, i32> {
+    let res = close(fd);
+    if res < 0 {
+        Result::Err(res)
+    };
+    Result::Ok(res)
+}

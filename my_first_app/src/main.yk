@@ -1,0 +1,41 @@
+package main
+// 1. Рекурсивное вычисление чисел Фибоначчи
+fn fibonacci(n: i32) -> i32 {
+    if n <= 1 {
+        return n;
+    } else {
+        return fibonacci(n - 1) + fibonacci(n - 2);
+    }
+}
+// 2. Рекурсивное вычисление факториала 
+fn factorial(n: i32) -> i32 {
+    if n == 0 {
+        return 1;
+    } else {
+        return n * factorial(n - 1);
+    }
+}
+// Главная точка входа
+fn main() -> i32 {
+    println("=== Young Kazah Language (YKL) Demo ===");
+    
+    let num = 7;
+    
+    println("1. Calculating Fibonacci for 7:");
+    let fib = fibonacci(num);
+    println(fib);
+    
+    println("2. Calculating Factorial for 7:");
+    let fact = factorial(num);
+    println(fact);
+    
+    // Проверка логики и мутабельности
+    println("3. Logic Test:");
+    if fact > 5000 {
+        println("Factorial is HUGE!");
+    } else {
+        println("Factorial is small.");
+    }
+    
+    return 0;
+}

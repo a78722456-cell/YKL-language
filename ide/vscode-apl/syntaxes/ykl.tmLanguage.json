@@ -1,0 +1,65 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Young Kazah Language",
+  "patterns": [
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#numbers"
+    }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.ykl",
+          "match": "\\b(fn|let|mut|if|else|match|return|struct|enum|trait|impl|async|await|spawn|channel|loop|while|for|in|pub|import|package)\\b"
+        },
+        {
+          "name": "constant.language.ykl",
+          "match": "\\b(true|false|None)\\b"
+        },
+        {
+          "name": "storage.type.ykl",
+          "match": "\\b(i8|i16|i32|i64|isize|u8|u16|u32|u64|usize|f32|f64|bool|char|string|void)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.ykl",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ykl",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.ykl",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.ykl",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "numbers": {
+      "name": "constant.numeric.ykl",
+      "match": "\\b\\d+(\\.\\d+)?\\b"
+    }
+  },
+  "scopeName": "source.ykl"
+}

@@ -1,0 +1,18 @@
+[package]
+name = "apl_lsp"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "apl-lsp"
+path = "src/main.rs"
+
+[dependencies]
+apl_ast = { path = "../apl_ast" }
+apl_lexer = { path = "../apl_lexer" }
+apl_parser = { path = "../apl_parser" }
+apl_sema = { path = "../apl_sema" }
+tower-lsp = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

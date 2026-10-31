@@ -1,0 +1,15 @@
+struct Box {
+    val: T,
+}
+
+fn extract_box(b: Box<T>) -> T {
+    return b.val;
+}
+
+fn main() -> i32 {
+    let b1 = Box { val: 42 };
+    let v1 = extract_box(b1);
+    let b2 = Box { val: "Hello, Generics!" };
+    let v2 = extract_box(b2);
+    return 0;
+}

@@ -1,0 +1,20 @@
+﻿# Rust build artifacts
+/target
+*.pdb
+
+# Compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Packages / Modules
+.ykl_modules/
+
+# Logs & temp test dumps
+out.txt
+*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db

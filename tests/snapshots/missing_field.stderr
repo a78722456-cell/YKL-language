@@ -1,0 +1,12 @@
+error[E0302]: type mismatch: expected 'Named("I32", [])', got 'I32'
+ --> missing_field.yk:7:28
+  |
+7 |     let p = Point { x: 10 };
+  |                            ^ error occurred here
+  |
+error[E0401]: missing field 'y' in struct 'Point'
+ --> missing_field.yk:7:28
+  |
+7 |     let p = Point { x: 10 };
+  |                            ^ error occurred here
+  |

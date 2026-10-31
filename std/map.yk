@@ -1,0 +1,66 @@
+struct IntMap {
+    keys: [i32],
+    vals: [T],
+    active: [i32],
+    cap: i32,
+    len: i32,
+}
+
+fn IntMap_new(dummy_v: T) -> IntMap<T> {
+    let cap = 16;
+    let mut map = IntMap { keys: alloc_array(cap), vals: alloc_array(cap), active: alloc_array(cap), cap: cap, len: 0 };
+    let mut i = 0;
+    while i < cap {
+        map.active[i] = 0;
+        map.keys[i] = 0;
+        map.vals[i] = dummy_v;
+        i = i + 1;
+    };
+    return map;
+}
+
+fn IntMap_insert(map: &mut IntMap<T>, key: i32, val: T) -> void {
+    if map.len == map.cap {
+        println("Map is full!");
+        return;
+    };
+    let mut idx = math_mod(math_abs(key), map.cap);
+    while 1 == 1 {
+        if map.active[idx] == 0 {
+            map.keys[idx] = key;
+            map.vals[idx] = val;
+            map.active[idx] = 1;
+            map.len = map.len + 1;
+            return;
+        };
+        if map.keys[idx] == key {
+            map.vals[idx] = val;
+            return;
+        };
+        idx = idx + 1;
+        if idx == map.cap {
+            idx = 0;
+        }
+    }
+}
+
+fn IntMap_get(map: &IntMap<T>, key: i32, default_val: T) -> T {
+    let mut idx = math_mod(math_abs(key), map.cap);
+    let mut start_idx = idx;
+    while 1 == 1 {
+        if map.active[idx] == 0 {
+            return default_val;
+        };
+        if map.keys[idx] == key {
+            return map.vals[idx];
+        };
+        idx = idx + 1;
+        if idx == map.cap {
+            idx = 0;
+        };
+        if idx == start_idx {
+            return default_val;
+        }
+    };
+    return default_val;
+}

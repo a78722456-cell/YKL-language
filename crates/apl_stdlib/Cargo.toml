@@ -1,0 +1,8 @@
+[package]
+name = "apl_stdlib"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+apl_runtime = { path = "../apl_runtime" }
+thiserror = { workspace = true }

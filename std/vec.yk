@@ -1,0 +1,62 @@
+
+import "std::result";
+
+extern {
+    fn free(ptr: Ptr) -> i32;
+}
+
+struct Vec<T> {
+    data: [T],
+    len: i32,
+    cap: i32,
+}
+
+fn vec_new<T>(dummy: &T) -> Vec<T> {
+    let cap = 4;
+    let data = alloc_array(cap, dummy);
+    Vec {
+        data: data,
+        len: 0,
+        cap: cap,
+    }
+}
+
+fn vec_push<T>(self: &mut Vec<T>, val: T) -> i32 {
+    if self.len == self.cap {
+        let new_cap = self.cap * 2;
+        let new_data = alloc_array(new_cap, &val);
+        
+        let mut i = 0;
+        while i < self.len {
+            new_data[i] = self.data[i];
+            i = i + 1;
+        }
+        
+        free(self.data);
+        self.data = new_data;
+        self.cap = new_cap;
+    }
+    
+    self.data[self.len] = val;
+    self.len = self.len + 1;
+    0
+}
+
+fn vec_get<T>(self: &Vec<T>, index: i32) -> T {
+    self.data[index]
+}
+
+fn vec_set<T>(self: &mut Vec<T>, index: i32, val: T) -> i32 {
+    self.data[index] = val;
+    0
+}
+
+fn vec_len<T>(self: &Vec<T>) -> i32 {
+    self.len
+}
+
+fn vec_free<T>(self: &mut Vec<T>) -> i32 {
+    free(self.data);
+    0
+}
+
