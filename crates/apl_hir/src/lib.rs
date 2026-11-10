@@ -135,6 +135,7 @@ pub enum HirExprKind {
     Loop(Box<HirExpr>),
     Break,
     Continue,
+    Return(Option<Box<HirExpr>>),
 }
 
 

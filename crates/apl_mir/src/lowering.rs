@@ -41,6 +41,7 @@ impl MirBuilder {
     }
 
     pub fn build(mut self, func: &HirFunction) -> MirBody {
+        self.add_local(LocalId(0), func.return_type.clone(), func.span, true, false);
         // Register params
         for param in &func.params {
             self.add_local(param.id, param.ty.clone(), param.span, false, true);
@@ -95,7 +96,10 @@ impl MirBuilder {
             HirStmt::Return(opt_expr, span) => {
                 if let Some(expr) = opt_expr {
                     // Usually return assigns to a special _0 local, but for now we just lower it.
-                    self.lower_expr(expr); 
+                    let rval = self.lower_expr(expr);
+                    self.blocks[self.current_block.0 as usize].statements.push(
+                        Statement::Assign(Place::Local(LocalId(0)), rval, *span)
+                    ); 
                 }
                 self.blocks[self.current_block.0 as usize].terminator = Terminator::Return(*span);
                 // Create a new block for dead code after return

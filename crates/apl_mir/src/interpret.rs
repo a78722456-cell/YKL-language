@@ -13,7 +13,7 @@ pub enum Value {
     Bool(bool),
     Str(String),
     Aggregate(Vec<Value>),
-    Ref(usize),   // heap address for references
+    Ref(usize), // heap address for references
     Null,
     Void,
 }

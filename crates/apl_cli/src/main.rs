@@ -187,20 +187,18 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dump_mir: bool, dump_cfg: bool, dump_dataflow: bool, dump_borrowck: bool) -> anyhow::Result<()> {
-    let src_file = if let Some(path) = input_file {
-        path.to_string()
-    } else if Path::new("src/main.yk").exists() {
-        "src/main.yk".to_string()
-    } else if Path::new("test.yk").exists() {
-        "test.yk".to_string()
+    let source = if let Some(path) = input_file {
+        let path = Path::new(path);
+        if !path.is_file() {
+            anyhow::bail!("Input file not found: {}", path.display());
+        }
+        fs::read_to_string(path)?
+    } else if Path::new("src/main.yk").is_file() {
+        fs::read_to_string("src/main.yk")?
+    } else if Path::new("test.yk").is_file() {
+        fs::read_to_string("test.yk")?
     } else {
         "fn main() -> i32 { let a = 100; let b = 200; return a + b; }".to_string()
-    };
-
-    let source = if src_file.ends_with(".yk") && Path::new(&src_file).exists() {
-        fs::read_to_string(&src_file)?
-    } else {
-        src_file.clone()
     };
 
     let mut lexer = Lexer::new(&source, 0);
@@ -417,10 +415,9 @@ fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dum
                 }
                 // If main returns an integer exit code, use it
                 match val {
-                    Value::Int(code) => {
-                        if code != 0 {
-                            std::process::exit(code as i32);
-                        }
+                    Value::Int(value) => {
+                        println!("{}", value);
+                        
                     }
                     Value::Void | Value::Null => {}
                     other => {

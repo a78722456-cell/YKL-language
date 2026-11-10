@@ -74,7 +74,7 @@ impl HirLowering {
             current_package: String::new(),
             current_fn_return_type: None,
             resolved_names: HashMap::new(),
-            next_local_id: 0,
+            next_local_id: 1,
             next_func_id: 0,
             next_struct_id: 0,
             next_enum_id: 0,
@@ -276,7 +276,12 @@ impl HirLowering {
                 })
             }
             Stmt::Expr(expr) => {
-                Some(HirStmt::Expr(self.lower_expr(expr)))
+                if let ExprKind::Return(opt_val) = &expr.kind {
+                    let ret_expr = opt_val.as_ref().map(|e| self.lower_expr(e));
+                    Some(HirStmt::Return(ret_expr, expr.span))
+                } else {
+                    Some(HirStmt::Expr(self.lower_expr(expr)))
+                }
             }
         }
     }
@@ -386,7 +391,19 @@ impl HirLowering {
                 } else {
                     None
                 };
-                let ret_ty = h_then.ty.clone(); // simplifed
+
+                let ret_ty = match &h_else {
+                    Some(e) if h_then.ty == e.ty => h_then.ty.clone(),
+                    Some(e) if h_then.ty == Type::Void || e.ty == Type::Void => {
+                        if h_then.ty == Type::Void { e.ty.clone() } else { h_then.ty.clone() }
+                    }
+                    Some(e) => {
+                        self.errors.push(HirError::TypeMismatch(h_then.ty.clone(), e.ty.clone(), expr.span));
+                        h_then.ty.clone()
+                    }
+                    None => h_then.ty.clone(),
+                };
+
                 HirExpr {
                     kind: HirExprKind::If { cond: Box::new(h_cond), then_branch: Box::new(h_then), else_branch: h_else },
                     ty: ret_ty,
@@ -515,8 +532,9 @@ impl HirLowering {
             ExprKind::Return(opt_val) => {
                 let ret_expr = opt_val.as_ref().map(|e| Box::new(self.lower_expr(e)));
                 let ret_ty = ret_expr.as_ref().map(|e| e.ty.clone()).unwrap_or(Type::Void);
+                let h_block = HirBlock { stmts: Vec::new(), span: expr.span };
                 HirExpr {
-                    kind: HirExprKind::Return(ret_expr),
+                    kind: HirExprKind::Block(h_block, ret_expr),
                     ty: ret_ty,
                     span: expr.span,
                 }

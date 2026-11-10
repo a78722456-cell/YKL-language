@@ -733,7 +733,7 @@ fn analyze_expr_inner(&mut self, expr: &Expr) -> Type {
             }
             ExprKind::EnumVariant(enum_name, var_name, args) => {
                 if let Some(en) = self.enums.get(enum_name).cloned() {
-                    if let Some(var) = en.variants.iter().find(|v| v.name == *var_name) {
+                    if let Some(_var) = en.variants.iter().find(|v| v.name == *var_name) {
                         for (i, arg) in args.iter().enumerate() {
                             let arg_ty = self.analyze_expr(arg);
                             // TODO: check arg_ty vs var.types[i]
