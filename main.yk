@@ -1,128 +1,347 @@
-// ==========================================
-// YKL Backend Service Engine v1.0
-// Micro-banking & Transaction Pipeline
-// ==========================================
+// ============================================================================
+// Young Kazah Language (YKL) - High-Performance Computational Mathematics Engine
+// ============================================================================
+// Modules:
+// 1. Number Theory: Modular Exponentiation, Extended Euclidean, Miller-Rabin Primality
+// 2. Linear Algebra: Fast Matrix Exponentiation O(log N) for Recurrences
+// 3. Numerical Analysis: Newton-Raphson Root Finding & Babylonian Square Root
+// 4. Dynamical Systems: Fixed-Point 4th-Order Runge-Kutta (RK4) Differential Solver
+// 5. Discrete Mathematics: Collatz Trajectory and Chaotic Orbit Analysis
+// ============================================================================
 
-// 1. Auth Module
-fn verify_token(token: i32) -> i32 {
-    if token == 9901 {
+// --- 1. NUMBER THEORY & MODULAR ARITHMETIC ---
+
+fn math_abs(x: i32) -> i32 {
+    if x < 0 {
+        return 0 - x;
+    }
+    return x;
+}
+
+fn math_gcd(a: i32, b: i32) -> i32 {
+    let mut x = math_abs(a);
+    let mut y = math_abs(b);
+    while y != 0 {
+        let t = y;
+        y = x % y;
+        x = t;
+    }
+    return x;
+}
+
+// Binary modular exponentiation: (base^exp) % modulus in O(log exp)
+fn math_pow_mod(base_in: i32, exp_in: i32, modulus: i32) -> i32 {
+    let mut base = base_in;
+    let mut exp = exp_in;
+    if modulus == 1 {
+        return 0;
+    }
+    let mut res = 1;
+    base = base % modulus;
+    while exp > 0 {
+        if exp % 2 == 1 {
+            res = (res * base) % modulus;
+        }
+        exp = exp / 2;
+        base = (base * base) % modulus;
+    }
+    return res;
+}
+
+// Modular inverse via Extended Euclidean Algorithm
+fn math_mod_inverse(a: i32, m: i32) -> i32 {
+    let mut m0 = m;
+    let mut y = 0;
+    let mut x = 1;
+    let mut val = a;
+
+    if m == 1 {
+        return 0;
+    }
+
+    while val > 1 {
+        if m0 == 0 {
+            return 0;
+        }
+        let q = val / m0;
+        let mut t = m0;
+        m0 = val % m0;
+        val = t;
+
+        t = y;
+        y = x - q * y;
+        x = t;
+    }
+
+    if x < 0 {
+        x = x + m;
+    }
+    return x;
+}
+
+// Deterministic Miller-Rabin Primality Test for 32-bit integers
+fn miller_rabin_test(d: i32, n: i32, a: i32) -> bool {
+    let mut x = math_pow_mod(a, d, n);
+    if x == 1 || x == n - 1 {
+        return true;
+    }
+
+    let mut temp_d = d;
+    let mut passed = false;
+    let mut done = false;
+
+    while temp_d != n - 1 && !done {
+        x = (x * x) % n;
+        temp_d = temp_d * 2;
+
+        if x == 1 {
+            done = true;
+        } else if x == n - 1 {
+            passed = true;
+            done = true;
+        }
+    }
+    return passed;
+}
+
+fn is_prime(n: i32) -> bool {
+    if n <= 1 || n == 4 {
+        return false;
+    }
+    if n <= 3 {
+        return true;
+    }
+    if n % 2 == 0 || n % 3 == 0 {
+        return false;
+    }
+
+    let mut d = n - 1;
+    while d % 2 == 0 {
+        d = d / 2;
+    }
+
+    // Deterministic witnesses for 32-bit bounds: 2, 7, 61
+    if !miller_rabin_test(d, n, 2) {
+        return false;
+    }
+    if n > 7 && !miller_rabin_test(d, n, 7) {
+        return false;
+    }
+    if n > 61 && !miller_rabin_test(d, n, 61) {
+        return false;
+    }
+
+    return true;
+}
+
+
+// --- 2. NUMERICAL ANALYSIS: NEWTON-RAPHSON ROOT FINDING ---
+
+// Exact Integer Square Root: floor(sqrt(n)) using Newton-Raphson
+fn math_isqrt(n: i32) -> i32 {
+    if n < 0 {
+        return 0;
+    }
+    if n == 0 || n == 1 {
+        return n;
+    }
+
+    let mut x0 = n / 2;
+    let mut x1 = (x0 + n / x0) / 2;
+
+    while x1 < x0 {
+        x0 = x1;
+        x1 = (x0 + n / x0) / 2;
+    }
+    return x0;
+}
+
+fn math_hypotenuse(a: i32, b: i32) -> i32 {
+    return math_isqrt(a * a + b * b);
+}
+
+
+// --- 3. LINEAR ALGEBRA: 2x2 FAST MATRIX EXPONENTIATION ---
+// Computes N-th Fibonacci / general second-order linear recurrence in O(log N)
+// Matrix M = [1 1; 1 0]
+// M^N gives F(N+1), F(N)
+
+fn fibonacci_matrix(n: i32, mod_val: i32) -> i32 {
+    if n <= 0 {
+        return 0;
+    }
+    if n == 1 {
         return 1;
     }
-    if token == 5502 {
-        return 2;
+
+    // Current transformation matrix M = [1, 1; 1, 0]
+    let mut m00 = 1;
+    let mut m01 = 1;
+    let mut m10 = 1;
+    let mut m11 = 0;
+
+    // Result identity matrix R = [1, 0; 0, 1]
+    let mut r00 = 1;
+    let mut r01 = 0;
+    let mut r10 = 0;
+    let mut r11 = 1;
+
+    let mut p = n - 1;
+
+    while p > 0 {
+        if p % 2 == 1 {
+            // R = R * M
+            let t00 = (r00 * m00 + r01 * m10) % mod_val;
+            let t01 = (r00 * m01 + r01 * m11) % mod_val;
+            let t10 = (r10 * m00 + r11 * m10) % mod_val;
+            let t11 = (r10 * m01 + r11 * m11) % mod_val;
+            r00 = t00;
+            r01 = t01;
+            r10 = t10;
+            r11 = t11;
+        }
+
+        // M = M * M
+        let s00 = (m00 * m00 + m01 * m10) % mod_val;
+        let s01 = (m00 * m01 + m01 * m11) % mod_val;
+        let s10 = (m10 * m00 + m11 * m10) % mod_val;
+        let s11 = (m10 * m01 + m11 * m11) % mod_val;
+        m00 = s00;
+        m01 = s01;
+        m10 = s10;
+        m11 = s11;
+
+        p = p / 2;
     }
-    if token == 1103 {
-        return 3;
-    }
-    return 0;
+
+    return r00;
 }
 
-// 2. Database Layer (In-Memory Table Simulation)
-fn db_get_balance(user_id: i32) -> i32 {
-    if user_id == 101 { 
-        return 15000; 
+
+// --- 4. DYNAMICAL SYSTEMS: FIXED-POINT RUNGE-KUTTA 4 (RK4) ---
+// Solves Damped Harmonic Oscillator:
+// x' = v
+// v' = -omega^2 * x - gamma * v
+// Fixed-point scaling factor: SCALE = 1000
+
+fn rk4_solve_oscillator(steps: i32, initial_x: i32, omega_sq: i32, gamma: i32) -> i32 {
+    let scale = 1000;
+    let dt = 50; // dt = 0.050 (in fixed point)
+
+    let mut x = initial_x * scale;
+    let mut v = 0;
+    let mut step = 0;
+
+    while step < steps {
+        // Stage 1
+        let k1_x = v;
+        let k1_v = 0 - (omega_sq * x) / scale - (gamma * v) / scale;
+
+        // Stage 2
+        let x_half1 = x + (k1_x * dt / 2) / scale;
+        let v_half1 = v + (k1_v * dt / 2) / scale;
+        let k2_x = v_half1;
+        let k2_v = 0 - (omega_sq * x_half1) / scale - (gamma * v_half1) / scale;
+
+        // Stage 3
+        let x_half2 = x + (k2_x * dt / 2) / scale;
+        let v_half2 = v + (k2_v * dt / 2) / scale;
+        let k3_x = v_half2;
+        let k3_v = 0 - (omega_sq * x_half2) / scale - (gamma * v_half2) / scale;
+
+        // Stage 4
+        let x_end = x + (k3_x * dt) / scale;
+        let v_end = v + (k3_v * dt) / scale;
+        let k4_x = v_end;
+        let k4_v = 0 - (omega_sq * x_end) / scale - (gamma * v_end) / scale;
+
+        // Combine weighted derivatives: dx = (k1 + 2*k2 + 2*k3 + k4) / 6
+        let dx = (k1_x + 2 * k2_x + 2 * k3_x + k4_x) / 6;
+        let dv = (k1_v + 2 * k2_v + 2 * k3_v + k4_v) / 6;
+
+        x = x + (dx * dt) / scale;
+        v = v + (dv * dt) / scale;
+
+        step = step + 1;
     }
-    if user_id == 102 { 
-        return 4200; 
-    }
-    if user_id == 103 { 
-        return 0; 
-    }
-    return 0 - 1;
+
+    // Return final position scaled back
+    return x / scale;
 }
 
-fn db_is_active(user_id: i32) -> bool {
-    if user_id == 101 { 
-        return true; 
+
+// --- 5. CHAOTIC DYNAMICS: COLLATZ ORBIT METRICS ---
+
+fn collatz_stopping_time(n_in: i32) -> i32 {
+    let mut n = n_in;
+    let mut steps = 0;
+    while n > 1 {
+        if n % 2 == 0 {
+            n = n / 2;
+        } else {
+            n = 3 * n + 1;
+        }
+        steps = steps + 1;
     }
-    if user_id == 102 { 
-        return true; 
-    }
-    if user_id == 103 { 
-        return false; 
-    }
-    return false;
+    return steps;
 }
 
-// 3. Business Logic Controllers
-fn handle_get_balance(token: i32, user_id: i32) -> i32 {
-    let role = verify_token(token);
-    if role == 0 {
-        return 401;
+fn collatz_peak_value(n_in: i32) -> i32 {
+    let mut n = n_in;
+    let mut peak = n;
+    while n > 1 {
+        if n % 2 == 0 {
+            n = n / 2;
+        } else {
+            n = 3 * n + 1;
+        }
+        if n > peak {
+            peak = n;
+        }
     }
-
-    if !db_is_active(user_id) {
-        return 403;
-    }
-
-    let bal = db_get_balance(user_id);
-    if bal < 0 {
-        return 404;
-    }
-
-    return 200;
+    return peak;
 }
 
-fn handle_transfer(token: i32, from_id: i32, to_id: i32, amount: i32) -> i32 {
-    let role = verify_token(token);
-    if role == 0 {
-        return 401;
-    }
 
-    if amount <= 0 {
-        return 400;
-    }
+// ============================================================================
+// MAIN PIPELINE EXECUTION & NUMERICAL VERIFICATION
+// ============================================================================
 
-    if !db_is_active(from_id) {
-        return 403;
-    }
-
-    if !db_is_active(to_id) {
-        return 404;
-    }
-
-    let sender_bal = db_get_balance(from_id);
-    if sender_bal < amount {
-        return 402;
-    }
-
-    return 201;
-}
-
-// 4. Batch Pipeline & Audit Engine
-fn run_batch_settlement(batch_size: i32) -> i32 {
-    let mut total_settled = 0;
-    let mut i = 1;
-
-    while i <= batch_size {
-        let fee = i * 2;
-        total_settled = total_settled + fee;
-        i = i + 1;
-    }
-
-    return total_settled;
-}
-
-// 5. API Gateway Router & Main
 fn main() -> i32 {
-    // 1. Проверка баланса клиентом (200 OK)
-    let res1 = handle_get_balance(1103, 101);
+    // 1. Modular Exponentiation: 7^256 mod 10007
+    let pow_res = math_pow_mod(7, 256, 10007);
 
-    // 2. Невалидный токен (401 Unauthorized)
-    let res2 = handle_get_balance(9999, 101);
+    // 2. Modular Inverse: inv(17, 3120) * 17 = 1 (mod 3120)
+    let inv_res = math_mod_inverse(17, 3120);
 
-    // 3. Заблокированный аккаунт (403 Forbidden)
-    let res3 = handle_get_balance(1103, 103);
+    // 3. Primality Testing: Miller-Rabin on Carmichael & Prime numbers
+    let mut prime_count = 0;
+    if is_prime(104729) { // 10,000th prime
+        prime_count = prime_count + 1;
+    }
+    if is_prime(10007) {
+        prime_count = prime_count + 1;
+    }
+    if !is_prime(561) { // 561 is a famous Carmichael pseudo-prime
+        prime_count = prime_count + 1;
+    }
 
-    // 4. Успешный трансфер (201 Created)
-    let res4 = handle_transfer(9901, 101, 102, 500);
+    // 4. Newton-Raphson Integer Root & Triangle Hypotenuse
+    let root_val = math_isqrt(987654321); // floor(sqrt(987654321)) = 31426
+    let hypot_val = math_hypotenuse(300, 400); // 3-4-5 triangle = 500
 
-    // 5. Недостаточно средств (402 Payment Required)
-    let res5 = handle_transfer(9901, 102, 101, 999999);
+    // 5. Matrix Exponentiation: Fibonacci F(35) modulo 1000000007
+    let fib_35 = fibonacci_matrix(35, 1000000007); // 9227465
 
-    // 6. Пакетный клиринг (50 транзакций)
-    let settlement = run_batch_settlement(50);
+    // 6. Runge-Kutta 4th Order numerical integration of harmonic oscillator
+    // Initial x = 100, omega^2 = 4, damping = 1, 20 steps
+    let rk4_disp = rk4_solve_oscillator(20, 100, 4, 1);
 
-    let status_sum = res1 + res2 + res3 + res4 + res5;
-    return status_sum + settlement;
+    // 7. Collatz Orbit Analysis for n = 27 (famous sequence with 111 steps)
+    let collatz_steps = collatz_stopping_time(27);
+    let collatz_peak = collatz_peak_value(27); // peak = 9232
+
+    // Synthesize verified checksum
+    let metrics_sum = pow_res + inv_res + prime_count + root_val + hypot_val + (fib_35 % 10000) + rk4_disp + collatz_steps + (collatz_peak % 1000);
+    return metrics_sum;
 }

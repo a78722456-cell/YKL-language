@@ -400,6 +400,7 @@ impl Interpreter {
             (UnaryOp::Neg, Value::Int(n))   => Ok(Value::Int(-n)),
             (UnaryOp::Neg, Value::Float(f)) => Ok(Value::Float(-f)),
             (UnaryOp::Not, Value::Bool(b))  => Ok(Value::Bool(!b)),
+            (UnaryOp::Not, Value::Int(n))   => Ok(Value::Bool(n == 0)),
             // Ref/RefMut produce a heap address — simplified here (Rvalue::Ref handles proper refs)
             (UnaryOp::Ref, val)    => Ok(Value::Ref(0)),
             (UnaryOp::RefMut, val) => Ok(Value::Ref(0)),

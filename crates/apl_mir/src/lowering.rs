@@ -199,6 +199,8 @@ impl MirBuilder {
                 if let Some(eb) = else_branch {
                     let else_rv = self.lower_expr(eb);
                     self.blocks[self.current_block.0 as usize].statements.push(Statement::Assign(dest.clone(), else_rv, eb.span));
+                } else {
+                    self.blocks[self.current_block.0 as usize].statements.push(Statement::Assign(dest.clone(), Rvalue::Use(Operand::Constant(Constant::Int(0, Type::Void))), expr.span));
                 }
                 self.blocks[self.current_block.0 as usize].terminator = Terminator::Goto(merge_block);
                 
