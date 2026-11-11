@@ -2,12 +2,15 @@
 use crate::*;
 use apl_hir::{HirExpr, HirExprKind, HirFunction, HirBlock, HirStmt};
 
+use std::collections::HashMap;
+
 pub struct MirBuilder {
     locals: Vec<LocalDecl>,
     blocks: Vec<BasicBlock>,
     current_block: BasicBlockId,
     loop_scopes: Vec<(BasicBlockId, BasicBlockId)>,
     scopes: Vec<Vec<LocalId>>,
+    pub struct_fields: HashMap<String, Vec<String>>,
 }
 
 impl MirBuilder {
@@ -18,6 +21,7 @@ impl MirBuilder {
             current_block: BasicBlockId(0),
             loop_scopes: Vec::new(),
             scopes: Vec::new(),
+            struct_fields: HashMap::new(),
         };
         // start block
         builder.blocks.push(BasicBlock {
@@ -38,6 +42,11 @@ impl MirBuilder {
 
     pub fn add_local(&mut self, id: LocalId, ty: Type, span: Span, mutability: bool, is_param: bool) {
         self.locals.push(LocalDecl { id, ty, span, mutability, is_param });
+    }
+
+    pub fn with_struct_fields(mut self, struct_fields: HashMap<String, Vec<String>>) -> Self {
+        self.struct_fields = struct_fields;
+        self
     }
 
     pub fn build(mut self, func: &HirFunction) -> MirBody {
@@ -172,6 +181,33 @@ impl MirBuilder {
                 self.current_block = next_block;
                 Rvalue::Use(Operand::Copy(dest))
             }
+            HirExprKind::MethodCall { receiver, method, args } => {
+                let mut op_args = Vec::with_capacity(args.len() + 1);
+
+                // 1. Receiver is first argument (self)
+                let rec_rv = self.lower_expr(receiver);
+                let rec_temp = self.make_temp(rec_rv, receiver.span, receiver.ty.clone());
+                op_args.push(Operand::Copy(rec_temp));
+
+                // 2. Remaining arguments
+                for arg in args {
+                    let arg_rv = self.lower_expr(arg);
+                    let temp = self.make_temp(arg_rv, arg.span, arg.ty.clone());
+                    op_args.push(Operand::Copy(temp));
+                }
+
+                let dest = self.make_temp_uninit(expr.ty.clone(), expr.span);
+                let next_block = self.new_block();
+                self.blocks[self.current_block.0 as usize].terminator = Terminator::Call {
+                    function: *method,
+                    args: op_args,
+                    destination: dest.clone(),
+                    target: next_block,
+                    span: expr.span,
+                };
+                self.current_block = next_block;
+                Rvalue::Use(Operand::Copy(dest))
+            }
             HirExprKind::If { cond, then_branch, else_branch } => {
                 let cond_rv = self.lower_expr(cond);
                 let cond_place = self.make_temp(cond_rv, cond.span, Type::Bool);
@@ -271,10 +307,20 @@ impl MirBuilder {
                     Rvalue::Use(Operand::Constant(Constant::Int(0, Type::Void)))
                 }
             }
-            HirExprKind::FieldAccess(base, _name) => {
-                let base_place = self.lower_place(base); // needs proper lower_place logic
-                // we need FieldId, assume 0 for now as dummy
-                let dest = Place::Field { base: Box::new(base_place), field: FieldId(0) };
+            HirExprKind::FieldAccess(base, field_name) => {
+                let base_place = self.lower_place(base);
+                let struct_name = match &base.ty {
+                    Type::Named(s, _) => s.clone(),
+                    Type::Ref(inner) | Type::RefMut(inner) => match &**inner {
+                        Type::Named(s, _) => s.clone(),
+                        _ => "".to_string(),
+                    },
+                    _ => "".to_string(),
+                };
+                let field_idx = self.struct_fields.get(&struct_name)
+                    .and_then(|fields| fields.iter().position(|f| f == field_name))
+                    .unwrap_or(0);
+                let dest = Place::Field { base: Box::new(base_place), field: FieldId(field_idx as u32) };
                 Rvalue::Use(Operand::Copy(dest))
             }
                         HirExprKind::StructInit { struct_id: _, fields } => {
@@ -293,9 +339,20 @@ impl MirBuilder {
     fn lower_place(&mut self, expr: &HirExpr) -> Place {
         match &expr.kind {
             HirExprKind::LocalRef(id) => Place::Local(*id),
-            HirExprKind::FieldAccess(base, _) => {
+            HirExprKind::FieldAccess(base, field_name) => {
                 let base_place = self.lower_place(base);
-                Place::Field { base: Box::new(base_place), field: FieldId(0) } // dummy 0
+                let struct_name = match &base.ty {
+                    Type::Named(s, _) => s.clone(),
+                    Type::Ref(inner) | Type::RefMut(inner) => match &**inner {
+                        Type::Named(s, _) => s.clone(),
+                        _ => "".to_string(),
+                    },
+                    _ => "".to_string(),
+                };
+                let field_idx = self.struct_fields.get(&struct_name)
+                    .and_then(|fields| fields.iter().position(|f| f == field_name))
+                    .unwrap_or(0);
+                Place::Field { base: Box::new(base_place), field: FieldId(field_idx as u32) }
             }
             _ => {
                 // If it's a complex expression, make a temp

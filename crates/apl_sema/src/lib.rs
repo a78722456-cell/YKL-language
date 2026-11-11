@@ -80,6 +80,23 @@ pub struct SemanticAnalyzer {
 }
 
 impl SemanticAnalyzer {
+    pub fn resolve_self_type(ty: &Type, target_struct: &str) -> Type {
+        match ty {
+            Type::Named(name, _) if name == "Self" => Type::Named(target_struct.to_string(), vec![]),
+            Type::Ref(inner) => Type::Ref(Box::new(Self::resolve_self_type(inner, target_struct))),
+            Type::RefMut(inner) => Type::RefMut(Box::new(Self::resolve_self_type(inner, target_struct))),
+            other => other.clone(),
+        }
+    }
+
+    pub fn unwrap_struct_name(ty: &Type) -> Option<String> {
+        match ty {
+            Type::Named(name, _) => Some(name.clone()),
+            Type::Ref(inner) | Type::RefMut(inner) => Self::unwrap_struct_name(inner),
+            _ => None,
+        }
+    }
+
     pub fn new() -> Self {
         let mut sa = Self {
             scopes: vec![Scope::new()],
@@ -326,6 +343,10 @@ impl SemanticAnalyzer {
                 Item::Impl(imp) => {
                     for mut method in imp.methods.clone() {
                         method.name = format!("{}_{}", imp.target_type, method.name);
+                        for param in &mut method.params {
+                            param.ty = Self::resolve_self_type(&param.ty, &imp.target_type);
+                        }
+                        method.return_type = Self::resolve_self_type(&method.return_type, &imp.target_type);
                         self.functions.insert(method.name.clone(), method);
                     }
                 }
@@ -341,8 +362,13 @@ impl SemanticAnalyzer {
                 self.analyze_function(func);
             }
             if let Item::Impl(imp) = item {
-                for method in &imp.methods {
-                    self.analyze_function(method);
+                for mut method in imp.methods.clone() {
+                    method.name = format!("{}_{}", imp.target_type, method.name);
+                    for param in &mut method.params {
+                        param.ty = Self::resolve_self_type(&param.ty, &imp.target_type);
+                    }
+                    method.return_type = Self::resolve_self_type(&method.return_type, &imp.target_type);
+                    self.analyze_function(&method);
                 }
             }
         }
@@ -404,6 +430,11 @@ impl SemanticAnalyzer {
         }
         if let (Type::Ref(i1), Type::RefMut(i2)) = (expected, actual) {
             return self.is_compatible(i1, i2);
+        }
+        if let (Type::Ref(inner), actual) | (Type::RefMut(inner), actual) = (expected, actual) {
+            if self.is_compatible(inner, actual) {
+                return true;
+            }
         }
         false
     }
@@ -572,6 +603,9 @@ fn analyze_expr_inner(&mut self, expr: &Expr) -> Type {
                     arg_types.push(self.analyze_expr(arg));
                 }
                 if let ExprKind::Ident(name) = &callee.kind {
+                    if name == "print" || name == "println" || name == "eprint" {
+                        return Type::Void;
+                    }
                     let mut resolved_name = name.clone();
                     let mut func_opt = self.functions.get(&resolved_name).cloned();
                     if func_opt.is_none() && !self.current_package.is_empty() {
@@ -663,65 +697,29 @@ fn analyze_expr_inner(&mut self, expr: &Expr) -> Type {
             }
             ExprKind::MethodCall(base, method_name, args) => {
                 let base_ty = self.analyze_expr(base);
-                let mut arg_types = vec![base_ty.clone()];
-                for arg in args {
-                    arg_types.push(self.analyze_expr(arg));
-                }
-
-                let struct_name = match &base_ty {
-                    Type::Named(name, _) => name.clone(),
-                    Type::Ref(inner) | Type::RefMut(inner) => {
-                        if let Type::Named(name, _) = &**inner {
-                            name.clone()
-                        } else {
-                            "".to_string()
-                        }
+                let struct_name = Self::unwrap_struct_name(&base_ty).unwrap_or_default();
+                let mangled_name = format!("{}_{}", struct_name, method_name);
+                let func = match self.functions.get(&mangled_name).cloned() {
+                    Some(f) => f,
+                    None => {
+                        self.errors.push(SemaError::UndefinedSymbol(mangled_name, expr.span));
+                        return Type::Void;
                     }
-                    _ => "".to_string(),
                 };
 
-                let fn_name = format!("{}_{}", struct_name, method_name);
-                if let Some(func) = self.functions.get(&fn_name).cloned() {
-                    let mut type_mapping = HashMap::new();
-
-                    for (i, param) in func.params.iter().enumerate() {
-                        if let Some(actual_ty) = arg_types.get(i) {
-                            Self::infer_generics(
-                                &param.ty,
-                                actual_ty,
-                                &mut type_mapping,
-                                &func.generics,
-                            );
+                for (i, arg) in args.iter().enumerate() {
+                    let arg_ty = self.analyze_expr(arg);
+                    if let Some(param) = func.params.get(i + 1) {
+                        if !self.is_compatible(&param.ty, &arg_ty) {
+                            self.errors.push(SemaError::TypeMismatch(
+                                param.ty.clone(),
+                                arg_ty,
+                                arg.span,
+                            ));
                         }
                     }
-
-                    for (i, param) in func.params.iter().enumerate() {
-                        if let Some(actual_ty) = arg_types.get(i) {
-                            let subst_expected = self.monomorphize_type(&param.ty, &type_mapping);
-                            if !self.is_compatible(&subst_expected, actual_ty) {
-                                self.errors.push(SemaError::TypeMismatch(
-                                    subst_expected,
-                                    actual_ty.clone(),
-                                    expr.span,
-                                ));
-                            }
-                        }
-                    }
-
-                    if arg_types.len() != func.params.len() {
-                        self.errors.push(SemaError::TypeMismatch(
-                            Type::Void,
-                            Type::Void,
-                            expr.span,
-                        ));
-                    }
-
-                    return self.monomorphize_type(&func.return_type, &type_mapping);
-                } else {
-                    self.errors
-                        .push(SemaError::UndefinedSymbol(fn_name, expr.span));
                 }
-                Type::Void
+                func.return_type
             }
             ExprKind::If(cond, then_branch, else_branch) => {
                 let _ct = self.analyze_expr(cond);
@@ -932,61 +930,36 @@ fn analyze_expr_inner(&mut self, expr: &Expr) -> Type {
                 let base_ty = self.analyze_expr(base_expr);
                 self.is_borrow_context = prev;
 
-                match base_ty {
-                    Type::Named(name, args) => {
-                        if let Some(decl) = self.structs.get(&name).cloned() {
-                            if let Some(f) = decl.fields.iter().find(|f| f.name == *field_name) {
-                                let mut type_mapping = HashMap::new();
-                                for (i, g) in decl.generics.iter().enumerate() {
-                                    if let Some(arg) = args.get(i) {
-                                        type_mapping.insert(g.clone(), arg.clone());
-                                    }
+                let (name, args) = match base_ty {
+                    Type::Named(name, args) => (name, args),
+                    Type::Ref(inner) | Type::RefMut(inner) => match *inner {
+                        Type::Named(name, args) => (name, args),
+                        _ => ("".to_string(), vec![]),
+                    },
+                    _ => ("".to_string(), vec![]),
+                };
+
+                if !name.is_empty() {
+                    if let Some(decl) = self.structs.get(&name).cloned() {
+                        if let Some(f) = decl.fields.iter().find(|f| f.name == *field_name) {
+                            let mut type_mapping = HashMap::new();
+                            for (i, g) in decl.generics.iter().enumerate() {
+                                if let Some(arg) = args.get(i) {
+                                    type_mapping.insert(g.clone(), arg.clone());
                                 }
-                                self.monomorphize_type(&f.ty, &type_mapping)
-                            } else {
-                                self.errors.push(SemaError::UnknownField(
-                                    name.clone(),
-                                    field_name.clone(),
-                                    expr.span,
-                                ));
-                                Type::Void
                             }
+                            return self.monomorphize_type(&f.ty, &type_mapping);
                         } else {
-                            Type::Void
+                            self.errors.push(SemaError::UnknownField(
+                                name.clone(),
+                                field_name.clone(),
+                                expr.span,
+                            ));
+                            return Type::Void;
                         }
-                    }
-                    Type::Ref(inner) | Type::RefMut(inner) => {
-                        if let Type::Named(name, args) = *inner {
-                            if let Some(decl) = self.structs.get(&name).cloned() {
-                                if let Some(f) = decl.fields.iter().find(|f| f.name == *field_name)
-                                {
-                                    let mut type_mapping = HashMap::new();
-                                    for (i, g) in decl.generics.iter().enumerate() {
-                                        if let Some(arg) = args.get(i) {
-                                            type_mapping.insert(g.clone(), arg.clone());
-                                        }
-                                    }
-                                    self.monomorphize_type(&f.ty, &type_mapping)
-                                } else {
-                                    self.errors.push(SemaError::UnknownField(
-                                        name.clone(),
-                                        field_name.clone(),
-                                        expr.span,
-                                    ));
-                                    Type::Void
-                                }
-                            } else {
-                                Type::Void
-                            }
-                        } else {
-                            Type::Void // Error reporting omitted for brevity
-                        }
-                    }
-                    _ => {
-                        // Not a struct
-                        Type::Void
                     }
                 }
+                Type::Void
             }
             ExprKind::While(cond, body) => {
                 let cond_ty = self.analyze_expr(cond);

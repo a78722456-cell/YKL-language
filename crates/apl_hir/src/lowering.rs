@@ -64,7 +64,20 @@ pub struct HirLowering {
 }
 
 impl HirLowering {
+    pub fn resolve_self_type(ty: &Type, target_struct: &str) -> Type {
+        match ty {
+            Type::Named(name, _) if name == "Self" => Type::Named(target_struct.to_string(), vec![]),
+            Type::Ref(inner) => Type::Ref(Box::new(Self::resolve_self_type(inner, target_struct))),
+            Type::RefMut(inner) => Type::RefMut(Box::new(Self::resolve_self_type(inner, target_struct))),
+            other => other.clone(),
+        }
+    }
     pub fn new() -> Self {
+        let mut func_map = HashMap::new();
+        func_map.insert("print".to_string(), FunctionId(99000));
+        func_map.insert("println".to_string(), FunctionId(99001));
+        func_map.insert("eprint".to_string(), FunctionId(99002));
+
         Self {
             errors: Vec::new(),
             scopes: Vec::new(),
@@ -78,7 +91,7 @@ impl HirLowering {
             next_func_id: 0,
             next_struct_id: 0,
             next_enum_id: 0,
-            func_map: HashMap::new(),
+            func_map,
             struct_map: HashMap::new(),
             enum_map: HashMap::new(),
         }
@@ -169,6 +182,10 @@ impl HirLowering {
                 Item::Impl(imp) => {
                     for mut method in imp.methods.clone() {
                         method.name = format!("{}_{}", imp.target_type, method.name);
+                        for param in &mut method.params {
+                            param.ty = Self::resolve_self_type(&param.ty, &imp.target_type);
+                        }
+                        method.return_type = Self::resolve_self_type(&method.return_type, &imp.target_type);
                         self.functions.insert(method.name.clone(), method.clone());
                         self.define_func(method.name.clone());
                     }
@@ -189,8 +206,13 @@ impl HirLowering {
                 }
             }
             if let Item::Impl(imp) = item {
-                for method in &imp.methods {
-                    if let Some(hf) = self.lower_function(method) {
+                for mut method in imp.methods.clone() {
+                    method.name = format!("{}_{}", imp.target_type, method.name);
+                    for param in &mut method.params {
+                        param.ty = Self::resolve_self_type(&param.ty, &imp.target_type);
+                    }
+                    method.return_type = Self::resolve_self_type(&method.return_type, &imp.target_type);
+                    if let Some(hf) = self.lower_function(&method) {
                         hir_funcs.push(hf);
                     }
                 }
@@ -343,6 +365,21 @@ impl HirLowering {
                 }
                 
                 if let ExprKind::Ident(name) = &callee.kind {
+                    if name == "print" || name == "println" || name == "eprint" {
+                        let callee_id = match name.as_str() {
+                            "print" => FunctionId(99000),
+                            "println" => FunctionId(99001),
+                            _ => FunctionId(99002),
+                        };
+                        return HirExpr {
+                            kind: HirExprKind::Call {
+                                callee: callee_id,
+                                args: hir_args,
+                            },
+                            ty: Type::Void,
+                            span: expr.span,
+                        };
+                    }
                     let full_pkg = format!("{}::{}", self.current_package, name);
                     let target_name = if self.func_map.contains_key(name) {
                         Some(name.as_str())
@@ -477,8 +514,17 @@ impl HirLowering {
             ExprKind::FieldAccess(base, field_name) => {
                 let h_base = self.lower_expr(base);
                 let mut f_ty = Type::Void;
-                if let Type::Named(struct_name, _) = &h_base.ty {
-                    if let Some(st) = self.structs.get(struct_name) {
+                let mut struct_name_opt = None;
+                if let Type::Named(s, _) = &h_base.ty {
+                    struct_name_opt = Some(s.clone());
+                } else if let Type::Ref(inner) | Type::RefMut(inner) = &h_base.ty {
+                    if let Type::Named(s, _) = &**inner {
+                        struct_name_opt = Some(s.clone());
+                    }
+                }
+
+                if let Some(struct_name) = struct_name_opt {
+                    if let Some(st) = self.structs.get(&struct_name) {
                         if let Some(f) = st.fields.iter().find(|f| f.name == *field_name) {
                             f_ty = f.ty.clone();
                         } else {
@@ -502,7 +548,16 @@ impl HirLowering {
                 let mut ret_ty = Type::Void;
                 let mut m_id = FunctionId(0);
                 
-                if let Type::Named(struct_name, _) = &h_receiver.ty {
+                let mut struct_name_opt = None;
+                if let Type::Named(s, _) = &h_receiver.ty {
+                    struct_name_opt = Some(s.clone());
+                } else if let Type::Ref(inner) | Type::RefMut(inner) = &h_receiver.ty {
+                    if let Type::Named(s, _) = &**inner {
+                        struct_name_opt = Some(s.clone());
+                    }
+                }
+
+                if let Some(struct_name) = struct_name_opt {
                     let full_name = format!("{}_{}", struct_name, method_name);
                     if let Some(&func_id) = self.func_map.get(&full_name) {
                         m_id = func_id;

@@ -1,77 +1,167 @@
-use apl_ast::{BinaryOp, StructDecl, EnumDecl, Type};
-use apl_mir::*;
+use apl_ast::{BinaryOp, EnumDecl, StructDecl, Type, UnaryOp};
+use apl_hir::FunctionId;
+use apl_mir::{
+    Constant, LocalDecl, MirBody, Operand, Place, Rvalue, Statement, Terminator,
+};
 use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+pub struct CodegenFunction {
+    pub id: FunctionId,
+    pub name: String,
+    pub return_type: Type,
+    pub body: MirBody,
+}
 
 pub struct CCodeGenerator;
 
 impl CCodeGenerator {
-    fn mangle_name(name: &str, args: &[Type]) -> String {
-        let mut n = name.to_string();
-        for a in args {
-            n.push_str("_");
-            n.push_str(&format!("{}", a).replace(" ", "").replace("<", "_").replace(">", "_").replace(",", "_"));
-        }
-        n
-    }
-
-    fn size_of_type(ty: &Type, structs: &HashMap<String, StructDecl>, enums: &HashMap<String, EnumDecl>) -> usize {
+    fn c_type(ty: &Type) -> String {
         match ty {
-            Type::Named(name, args) => {
-                if let Some(st) = structs.get(&Self::mangle_name(name, args)) {
-                    st.fields.iter().map(|f| Self::size_of_type(&f.ty, structs, enums)).sum()
-                } else if let Some(en) = enums.get(&Self::mangle_name(name, args)) {
-                    1 + en.variants.iter().map(|v| v.types.iter().map(|t| Self::size_of_type(t, structs, enums)).sum::<usize>()).max().unwrap_or(0)
+            Type::I8 => "int8_t".to_string(),
+            Type::I16 => "int16_t".to_string(),
+            Type::I32 => "int32_t".to_string(),
+            Type::I64 | Type::ISize => "int64_t".to_string(),
+            Type::U8 => "uint8_t".to_string(),
+            Type::U16 => "uint16_t".to_string(),
+            Type::U32 => "uint32_t".to_string(),
+            Type::U64 | Type::USize => "uint64_t".to_string(),
+            Type::F32 => "float".to_string(),
+            Type::F64 => "double".to_string(),
+            Type::Bool => "bool".to_string(),
+            Type::Char => "char".to_string(),
+            Type::String => "const char*".to_string(),
+            Type::Void => "void".to_string(),
+            Type::Named(name, _) => format!("struct {}", name),
+            Type::Ref(inner) | Type::RefMut(inner) => {
+                if let Type::Named(name, _) = &**inner {
+                    format!("struct {}*", name)
                 } else {
-                    1
+                    format!("{}*", Self::c_type(inner))
                 }
             }
-            Type::Array(inner, size) => Self::size_of_type(inner, structs, enums) * size,
-            _ => 1,
+            _ => "int64_t".to_string(),
         }
     }
 
-    fn offset_of_field(ty: &Type, field: &str, structs: &HashMap<String, StructDecl>, enums: &HashMap<String, EnumDecl>) -> usize {
-        match ty {
-            Type::Ref(inner) | Type::RefMut(inner) => Self::offset_of_field(inner.as_ref(), field, structs, enums),
-            Type::Named(name, args) => {
-                if let Some(st) = structs.get(&Self::mangle_name(name, args)) {
-                    let idx = field.parse::<usize>().unwrap();
-                    let mut offset = 0;
-                    for i in 0..idx {
-                        offset += Self::size_of_type(&st.fields[i].ty, structs, enums);
-                    }
-                    offset
-                } else if let Some(en) = enums.get(&Self::mangle_name(name, args)) {
-                    if field == "0" {
-                        return 0; // Tag is always offset 0
-                    }
-                    let parts: Vec<&str> = field.split("::").collect();
-                    if parts.len() == 2 {
-                        let var_name = parts[0];
-                        let idx = parts[1].parse::<usize>().unwrap() - 1;
-                        if let Some(variant) = en.variants.iter().find(|v| v.name == var_name) {
-                            let mut offset = 1; // Tag takes 1
-                            for i in 0..idx {
-                                offset += Self::size_of_type(&variant.types[i], structs, enums);
-                            }
-                            return offset;
+    fn escape_c_string(s: &str) -> String {
+        let mut out = String::with_capacity(s.len() + 2);
+        out.push('"');
+        for ch in s.chars() {
+            match ch {
+                '\\' => out.push_str("\\\\"),
+                '"' => out.push_str("\\\""),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+        out
+    }
+
+    fn format_place(
+        place: &Place,
+        locals: &[LocalDecl],
+        structs: &HashMap<String, StructDecl>,
+    ) -> String {
+        match place {
+            Place::Local(id) => format!("_l{}", id.0),
+            Place::Field { base, field } => {
+                let base_str = Self::format_place(base, locals, structs);
+                let base_ty = Self::place_type(base, locals);
+                let is_ptr = matches!(base_ty, Type::Ref(_) | Type::RefMut(_));
+                let op = if is_ptr { "->" } else { "." };
+
+                if let Some(struct_name) = Self::place_struct_name(base, locals) {
+                    if let Some(st) = structs.get(&struct_name) {
+                        if let Some(f_decl) = st.fields.get(field.0 as usize) {
+                            return format!("{}{}{}", base_str, op, f_decl.name);
                         }
                     }
-                    // Fallback to simple index if not variant-specific
-                    let idx = field.parse::<usize>().unwrap_or(1);
-                    if idx == 0 { 0 } else { 1 + (idx - 1) } // VERY inaccurate fallback
-                } else {
-                    0
+                }
+                format!("{}{}{}", base_str, op, format!("f{}", field.0))
+            }
+            Place::Index { base, index } => {
+                format!(
+                    "{}[_l{}]",
+                    Self::format_place(base, locals, structs),
+                    index.0
+                )
+            }
+            Place::Deref { base } => format!("(*{})", Self::format_place(base, locals, structs)),
+        }
+    }
+
+    fn place_type(place: &Place, locals: &[LocalDecl]) -> Type {
+        match place {
+            Place::Local(id) => locals
+                .iter()
+                .find(|l| l.id == *id)
+                .map(|l| l.ty.clone())
+                .unwrap_or(Type::I32),
+            Place::Deref { base } => match Self::place_type(base, locals) {
+                Type::Ref(inner) | Type::RefMut(inner) => *inner,
+                other => other,
+            },
+            Place::Field { base, field: _ } => {
+                let base_ty = Self::place_type(base, locals);
+                match base_ty {
+                    Type::Ref(inner) | Type::RefMut(inner) => match *inner {
+                        Type::Named(ref name, _) => Type::Named(name.clone(), vec![]),
+                        other => other,
+                    },
+                    other => other,
                 }
             }
-            _ => 0,
+            _ => Type::I32,
+        }
+    }
+
+    fn place_struct_name(place: &Place, locals: &[LocalDecl]) -> Option<String> {
+        match Self::place_type(place, locals) {
+            Type::Named(name, _) => Some(name),
+            Type::Ref(inner) | Type::RefMut(inner) => match *inner {
+                Type::Named(name, _) => Some(name),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn operand_type(op: &Operand, locals: &[LocalDecl]) -> Type {
+        match op {
+            Operand::Copy(p) | Operand::Move(p) => Self::place_type(p, locals),
+            Operand::Constant(c) => match c {
+                Constant::Int(_, ty) => ty.clone(),
+                Constant::Float(_, ty) => ty.clone(),
+                Constant::Bool(_) => Type::Bool,
+                Constant::String(_) => Type::String,
+            },
+        }
+    }
+
+    fn format_operand(
+        op: &Operand,
+        locals: &[LocalDecl],
+        structs: &HashMap<String, StructDecl>,
+    ) -> String {
+        match op {
+            Operand::Copy(p) | Operand::Move(p) => Self::format_place(p, locals, structs),
+            Operand::Constant(c) => match c {
+                Constant::Int(v, _) => format!("{}LL", v),
+                Constant::Float(v, _) => format!("{:?}", v),
+                Constant::Bool(b) => if *b { "true" } else { "false" }.to_string(),
+                Constant::String(s) => Self::escape_c_string(s),
+            },
         }
     }
 
     pub fn generate_program(
-        functions: &[MirFunction],
+        functions: &[CodegenFunction],
         structs: &HashMap<String, StructDecl>,
-        enums: &HashMap<String, EnumDecl>,
+        _enums: &HashMap<String, EnumDecl>,
     ) -> String {
         let mut code = String::new();
         code.push_str("/* Generated by Young Kazah Language (YKL / APL) Compiler */\n");
@@ -79,304 +169,286 @@ impl CCodeGenerator {
         code.push_str("#include <stdlib.h>\n");
         code.push_str("#include <stdint.h>\n");
         code.push_str("#include <stdbool.h>\n");
-        code.push_str("#include <string.h>\n");
-        code.push_str("#ifdef _WIN32\n");
-        code.push_str("#include <winsock2.h>\n");
-        code.push_str("#else\n");
-        code.push_str("#include <sys/socket.h>\n");
-        code.push_str("#include <netinet/in.h>\n");
-        code.push_str("#include <arpa/inet.h>\n");
-        code.push_str("#include <unistd.h>\n");
-        code.push_str("#endif\n\n");
+        code.push_str("#include <string.h>\n\n");
 
-        code.push_str("/* Standard Library Impls */\n");
-        code.push_str("int64_t yk_net_create_server_addr(int64_t port) {\n");
-        code.push_str("    struct sockaddr_in* addr = malloc(sizeof(struct sockaddr_in));\n");
-        code.push_str("    memset(addr, 0, sizeof(struct sockaddr_in));\n");
-        code.push_str("    addr->sin_family = AF_INET;\n");
-        code.push_str("    addr->sin_port = htons((uint16_t)port);\n");
-        code.push_str("    addr->sin_addr.s_addr = INADDR_ANY;\n");
-        code.push_str("    return (int64_t)addr;\n");
-        code.push_str("}\n\n");
-        code.push_str("int64_t yk_string_concat(int64_t a, int64_t b) {\n");
-        code.push_str("    char* s1 = (char*)a;\n");
-        code.push_str("    char* s2 = (char*)b;\n");
-        code.push_str("    char* res = malloc(strlen(s1) + strlen(s2) + 1);\n");
-        code.push_str("    strcpy(res, s1);\n");
-        code.push_str("    strcat(res, s2);\n");
-        code.push_str("    return (int64_t)res;\n");
-        code.push_str("}\n\n");
-        
-        // Define Structs and Enums
-        for (name, _) in structs {
-            let size = Self::size_of_type(&Type::Named(name.clone(), vec![]), structs, enums);
-            code.push_str(&format!("typedef struct {{ int64_t data[{}]; }} YKL_{};\n", size.max(1), name.replace("::", "_")));
+        // 1. Предварительные объявления структур
+        for st_name in structs.keys() {
+            code.push_str(&format!("struct {};\n", st_name));
         }
-        for (name, _) in enums {
-            let size = Self::size_of_type(&Type::Named(name.clone(), vec![]), structs, enums);
-            code.push_str(&format!("typedef struct {{ int64_t data[{}]; }} YKL_{};\n", size.max(1), name.replace("::", "_")));
-        }
-        code.push_str("\n");
+        code.push('\n');
 
-        // Forward declarations
-        for func in functions {
-            code.push_str(&Self::c_func_sig(func, structs, enums));
-            code.push_str(";\n");
-        }
-        code.push_str("\n");
-
-        // Function definitions
-        for func in functions {
-            code.push_str(&Self::generate_function(func, structs, enums));
-            code.push_str("\n");
-        }
-
-        if functions.iter().any(|f| f.name == "main") {
-            code.push_str("int main(int argc, char** argv) {\n");
-            code.push_str("    yk_main();\n");
-            code.push_str("    return 0;\n");
-            code.push_str("}\n");
-        }
-
-        code
-    }
-    
-    fn c_type_str(ty: &Type, structs: &HashMap<String, StructDecl>, enums: &HashMap<String, EnumDecl>) -> String {
-        match ty {
-            Type::Named(name, args) => {
-                if structs.contains_key(name) || enums.contains_key(name) {
-                    format!("YKL_{}", Self::mangle_name(name, args).replace("::", "_"))
-                } else {
-                    "int64_t".to_string()
+        // 2. Полные определения структур
+        for (st_name, st_decl) in structs {
+            code.push_str(&format!("struct {} {{\n", st_name));
+            if st_decl.fields.is_empty() {
+                code.push_str("    uint8_t _dummy;\n");
+            } else {
+                for field in &st_decl.fields {
+                    code.push_str(&format!(
+                        "    {} {};\n",
+                        Self::c_type(&field.ty),
+                        field.name
+                    ));
                 }
             }
-            _ => "int64_t".to_string(),
+            code.push_str("};\n\n");
         }
-    }
 
-    fn c_func_sig(func: &MirFunction, structs: &HashMap<String, StructDecl>, enums: &HashMap<String, EnumDecl>) -> String {
-        let ret_ty = Self::c_type_str(&func.return_type, structs, enums);
-        let mut sig = format!("{} yk_{}(", ret_ty, func.name);
-        for (i, param) in func.params.iter().enumerate() {
-            if i > 0 { sig.push_str(", "); }
-            let p_ty = func.var_types.get(param).unwrap_or(&Type::I64);
-            sig.push_str(&format!("{} v_{}", Self::c_type_str(p_ty, structs, enums), param.0));
+        // Карта имен, типов возврата и типов параметров функций по FunctionId
+        let mut func_signatures: HashMap<FunctionId, (String, Type, Vec<Type>)> = HashMap::new();
+        for f in functions {
+            let c_name = if f.name == "main" {
+                "ykl_main".to_string()
+            } else {
+                f.name.replace("::", "_")
+            };
+            let param_tys: Vec<Type> = f
+                .body
+                .locals
+                .iter()
+                .filter(|l| l.is_param)
+                .map(|l| l.ty.clone())
+                .collect();
+            func_signatures.insert(f.id, (c_name, f.return_type.clone(), param_tys));
         }
-        if func.params.is_empty() {
-            sig.push_str("void");
+
+        // 3. Прототипы функций
+        for f in functions {
+            let (c_name, _, _) = &func_signatures[&f.id];
+            let ret_c = Self::c_type(&f.return_type);
+            let params: Vec<String> = f
+                .body
+                .locals
+                .iter()
+                .filter(|l| l.is_param)
+                .map(|l| format!("{} _l{}", Self::c_type(&l.ty), l.id.0))
+                .collect();
+            let params_sig = if params.is_empty() {
+                "void".to_string()
+            } else {
+                params.join(", ")
+            };
+            code.push_str(&format!("{} {}({});\n", ret_c, c_name, params_sig));
         }
-        sig.push_str(")");
-        sig
-    }
+        code.push('\n');
 
-    fn generate_function(func: &MirFunction, structs: &HashMap<String, StructDecl>, enums: &HashMap<String, EnumDecl>) -> String {
-        let mut code = String::new();
-        code.push_str(&Self::c_func_sig(func, structs, enums));
-        code.push_str(" {\n");
+        // 4. Определения функций
+        for f in functions {
+            let (c_name, _, _) = &func_signatures[&f.id];
+            let ret_c = Self::c_type(&f.return_type);
+            let params: Vec<String> = f
+                .body
+                .locals
+                .iter()
+                .filter(|l| l.is_param)
+                .map(|l| format!("{} _l{}", Self::c_type(&l.ty), l.id.0))
+                .collect();
+            let params_sig = if params.is_empty() {
+                "void".to_string()
+            } else {
+                params.join(", ")
+            };
 
-        // Find max var id to declare local variables
-        let mut max_var = 0;
-        for bb in &func.blocks {
-            for inst in &bb.instructions {
-                match inst {
-                    MirInstruction::Assign(dest, _)
-                    | MirInstruction::Binary(dest, _, _, _)
-                    | MirInstruction::Unary(dest, _, _)
-                    | MirInstruction::Call(dest, _, _)
-                    | MirInstruction::ExternCall(dest, _, _)
-                    | MirInstruction::Alloc(dest, _)
-                    | MirInstruction::StructAlloc(dest, _, _)
-                    | MirInstruction::ArrayAlloc(dest, _)
-                    | MirInstruction::ArrayAllocDynamic(dest, _)
-                    | MirInstruction::FieldGet(dest, _, _)
-                    | MirInstruction::ArrayGet(dest, _, _)
-                    | MirInstruction::StringConcat(dest, _, _) => {
-                        if dest.0 > max_var { max_var = dest.0; }
-                    }
-                    MirInstruction::FieldSet(_, _, _)
-                    | MirInstruction::ArraySet(_, _, _)
-                    | MirInstruction::Drop(_) => {}
+            code.push_str(&format!("{} {}({}) {{\n", ret_c, c_name, params_sig));
+
+            // Объявления локальных переменных (не параметров и не Void)
+            for local in &f.body.locals {
+                if !local.is_param && local.ty != Type::Void {
+                    let zero_init = match &local.ty {
+                        Type::Named(name, _) => format!("(struct {}){{0}}", name),
+                        Type::Ref(_) | Type::RefMut(_) => "NULL".to_string(),
+                        _ => "0".to_string(),
+                    };
+                    code.push_str(&format!(
+                        "    {} _l{} = {};\n",
+                        Self::c_type(&local.ty),
+                        local.id.0,
+                        zero_init
+                    ));
                 }
             }
-        }
+            code.push('\n');
 
-        for i in 0..=max_var {
-            if !func.params.iter().any(|p| p.0 == i) {
-                let v = MirVar(i);
-                let ty = func.var_types.get(&v).unwrap_or(&Type::I64);
-                let c_ty = Self::c_type_str(ty, structs, enums);
-                code.push_str(&format!("    {} v_{}; memset(&v_{}, 0, sizeof({}));\n", c_ty, i, i, c_ty));
-            }
-        }
-        code.push_str("\n");
-
-        for bb in &func.blocks {
-            code.push_str(&format!("bb_{}:\n", bb.id.0));
-            for inst in &bb.instructions {
-                match inst {
-                    MirInstruction::Assign(dest, val) => {
-                        let ty = func.var_types.get(dest).unwrap_or(&Type::I64);
-                        if Self::size_of_type(ty, structs, enums) > 1 {
-                            code.push_str(&format!("    v_{} = {};\n", dest.0, Self::val_to_c(val))); // Struct assignment (value copy)
-                        } else {
-                            code.push_str(&format!("    v_{} = {};\n", dest.0, Self::val_to_c(val)));
+            // Генерация базовых блоков CFG
+            for (idx, block) in f.body.blocks.iter().enumerate() {
+                code.push_str(&format!("bb{}:\n", idx));
+                for stmt in &block.statements {
+                    if let Statement::Assign(place, rvalue, _) = stmt {
+                        let place_ty = Self::place_type(place, &f.body.locals);
+                        if place_ty == Type::Void {
+                            continue;
                         }
-                    }
-                    MirInstruction::Binary(dest, op, left, right) => {
-                        let op_str = match op {
-                            BinaryOp::Add => "+", BinaryOp::Sub => "-", BinaryOp::Mul => "*", BinaryOp::Div => "/",
-                            BinaryOp::Mod => "%", BinaryOp::Eq => "==", BinaryOp::Neq => "!=", BinaryOp::Lt => "<",
-                            BinaryOp::Lte => "<=", BinaryOp::Gt => ">", BinaryOp::Gte => ">=", BinaryOp::And => "&&",
-                            BinaryOp::Or => "||",
-                        };
-                        code.push_str(&format!("    v_{} = {} {} {};\n", dest.0, Self::val_to_c(left), op_str, Self::val_to_c(right)));
-                    }
-                    MirInstruction::Unary(dest, op, operand) => {
-                        let op_str = match op { apl_ast::UnaryOp::Neg => "-", apl_ast::UnaryOp::Not => "!", _ => "" };
-                        code.push_str(&format!("    v_{} = {}{};\n", dest.0, op_str, Self::val_to_c(operand)));
-                    }
-                    MirInstruction::ExternCall(dest, callee, args) => {
-                        code.push_str(&format!("    v_{} = {}(", dest.0, callee));
-                        for (i, arg) in args.iter().enumerate() {
-                            if i > 0 { code.push_str(", "); }
-                            code.push_str(&Self::val_to_c(arg));
-                        }
-                        code.push_str(");\n");
-                    }
-                    MirInstruction::Call(dest, callee, args) => {
-                        if callee == "println" {
-                            if let Some(arg) = args.get(0) {
-                                match arg {
-                                    MirValue::ConstantString(s) => code.push_str(&format!("    printf(\"{}\\n\");\n", s)),
-                                    _ => code.push_str(&format!("    printf(\"%lld\\n\", (long long){});\n", Self::val_to_c(arg))),
+                        let lhs = Self::format_place(place, &f.body.locals, structs);
+                        let rhs = match rvalue {
+                            Rvalue::Use(op) => Self::format_operand(op, &f.body.locals, structs),
+                            Rvalue::Ref(_, _, p) => {
+                                let p_ty = Self::place_type(p, &f.body.locals);
+                                if matches!(p_ty, Type::Ref(_) | Type::RefMut(_)) {
+                                    Self::format_place(p, &f.body.locals, structs)
+                                } else {
+                                    format!("&{}", Self::format_place(p, &f.body.locals, structs))
                                 }
                             }
-                            code.push_str(&format!("    v_{} = 0;\n", dest.0));
-                        } else {
-                            code.push_str(&format!("    v_{} = yk_{}(", dest.0, callee));
-                            for (i, arg) in args.iter().enumerate() {
-                                if i > 0 { code.push_str(", "); }
-                                code.push_str(&Self::val_to_c(arg));
+                            Rvalue::BinaryOp(op, l, r) => {
+                                let ls = Self::format_operand(l, &f.body.locals, structs);
+                                let rs = Self::format_operand(r, &f.body.locals, structs);
+                                let op_str = match op {
+                                    BinaryOp::Add => "+",
+                                    BinaryOp::Sub => "-",
+                                    BinaryOp::Mul => "*",
+                                    BinaryOp::Div => "/",
+                                    BinaryOp::Mod => "%",
+                                    BinaryOp::Eq => "==",
+                                    BinaryOp::Neq => "!=",
+                                    BinaryOp::Lt => "<",
+                                    BinaryOp::Lte => "<=",
+                                    BinaryOp::Gt => ">",
+                                    BinaryOp::Gte => ">=",
+                                    BinaryOp::And => "&&",
+                                    BinaryOp::Or => "||",
+                                };
+                                format!("({} {} {})", ls, op_str, rs)
                             }
-                            code.push_str(");\n");
-                        }
-                    }
-                    MirInstruction::Alloc(dest, _) => {
-                        code.push_str(&format!("    v_{} = (int64_t)malloc(64);\n", dest.0));
-                    }
-                    MirInstruction::StructAlloc(dest, _name, fields) => {
-                        let mut offset = 0;
-                        for f_val in fields {
-                            let f_ty = match f_val {
-                                MirValue::Var(v) => func.var_types.get(v).cloned().unwrap_or(Type::I64),
-                                _ => Type::I64,
-                            };
-                            let size = Self::size_of_type(&f_ty, structs, enums);
-                            if size == 1 {
-                                code.push_str(&format!("    v_{}.data[{}] = {};\n", dest.0, offset, Self::val_to_c(f_val)));
-                            } else {
-                                code.push_str(&format!("    memcpy(&v_{}.data[{}], &{}, {} * sizeof(int64_t));\n", dest.0, offset, Self::val_to_c(f_val), size));
+                            Rvalue::UnaryOp(op, operand) => {
+                                let v = Self::format_operand(operand, &f.body.locals, structs);
+                                match op {
+                                    UnaryOp::Neg => format!("(-{})", v),
+                                    UnaryOp::Not => format!("(!{})", v),
+                                    UnaryOp::Deref => format!("(*{})", v),
+                                    UnaryOp::Ref | UnaryOp::RefMut => format!("&{}", v),
+                                    _ => v,
+                                }
                             }
-                            offset += size;
+                            Rvalue::Aggregate(fields) => {
+                                let vals: Vec<String> = fields
+                                    .iter()
+                                    .map(|op| Self::format_operand(op, &f.body.locals, structs))
+                                    .collect();
+                                format!("({}) {{ {} }}", Self::c_type(&place_ty), vals.join(", "))
+                            }
+                        };
+                        code.push_str(&format!("    {} = {};\n", lhs, rhs));
+                    }
+                }
+
+                // Терминатор блока
+                match &block.terminator {
+                    Terminator::Goto(target) => {
+                        code.push_str(&format!("    goto bb{};\n", target.0));
+                    }
+                    Terminator::SwitchInt {
+                        discriminant,
+                        targets,
+                        otherwise,
+                    } => {
+                        let disc = Self::format_operand(discriminant, &f.body.locals, structs);
+                        for (val, target) in targets {
+                            code.push_str(&format!(
+                                "    if ({} == {}) goto bb{};\n",
+                                disc, val, target.0
+                            ));
+                        }
+                        code.push_str(&format!("    goto bb{};\n", otherwise.0));
+                    }
+                    Terminator::Call {
+                        function,
+                        args,
+                        destination,
+                        target,
+                        ..
+                    } => {
+                        match function.0 {
+                            99000 | 99001 | 99002 => {
+                                let stream = if function.0 == 99002 { "stderr" } else { "stdout" };
+                                let newline = if function.0 == 99000 { "" } else { "\\n" };
+                                if args.is_empty() {
+                                    if !newline.is_empty() {
+                                        code.push_str(&format!("    fprintf({}, \"\\n\");\n", stream));
+                                    }
+                                } else {
+                                    for (i, arg) in args.iter().enumerate() {
+                                        let arg_ty = Self::operand_type(arg, &f.body.locals);
+                                        let arg_c = Self::format_operand(arg, &f.body.locals, structs);
+                                        let sep = if i + 1 < args.len() { " " } else { newline };
+                                        match arg_ty {
+                                            Type::String => code.push_str(&format!(
+                                                "    fprintf({}, \"%s{}\", {});\n",
+                                                stream, sep, arg_c
+                                            )),
+                                            Type::F32 | Type::F64 => code.push_str(&format!(
+                                                "    fprintf({}, \"%g{}\", (double)({}));\n",
+                                                stream, sep, arg_c
+                                            )),
+                                            Type::Bool => code.push_str(&format!(
+                                                "    fprintf({}, \"%s{}\", ({}) ? \"true\" : \"false\");\n",
+                                                stream, sep, arg_c
+                                            )),
+                                            _ => code.push_str(&format!(
+                                                "    fprintf({}, \"%lld{}\", (long long)({}));\n",
+                                                stream, sep, arg_c
+                                            )),
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                if let Some((callee_name, ret_ty, param_types)) = func_signatures.get(function) {
+                                    let mut arg_strs: Vec<String> = Vec::new();
+                                    for (i, arg) in args.iter().enumerate() {
+                                        let arg_ty = Self::operand_type(arg, &f.body.locals);
+                                        let mut arg_c = Self::format_operand(arg, &f.body.locals, structs);
+                                        if let Some(expected_ty) = param_types.get(i) {
+                                            if matches!(expected_ty, Type::Ref(_) | Type::RefMut(_)) && !matches!(arg_ty, Type::Ref(_) | Type::RefMut(_)) {
+                                                arg_c = format!("&{}", arg_c);
+                                            }
+                                        }
+                                        arg_strs.push(arg_c);
+                                    }
+                                    let call_str = format!("{}({})", callee_name, arg_strs.join(", "));
+                                    let dest_ty = Self::place_type(destination, &f.body.locals);
+                                    if *ret_ty != Type::Void && dest_ty != Type::Void {
+                                        let lhs = Self::format_place(destination, &f.body.locals, structs);
+                                        code.push_str(&format!("    {} = {};\n", lhs, call_str));
+                                    } else {
+                                        code.push_str(&format!("    {};\n", call_str));
+                                    }
+                                }
+                            }
+                        }
+                        code.push_str(&format!("    goto bb{};\n", target.0));
+                    }
+                    Terminator::Return(_) => {
+                        if f.return_type == Type::Void {
+                            code.push_str("    return;\n");
+                        } else {
+                            code.push_str("    return _l0;\n");
                         }
                     }
-                    MirInstruction::FieldGet(dest, base_val, field) => {
-                        let base_ty = match base_val {
-                            MirValue::Var(v) => func.var_types.get(v).unwrap(),
-                            _ => &Type::I64,
-                        };
-                        let offset = Self::offset_of_field(base_ty, field, structs, enums);
-                        let dest_ty = func.var_types.get(dest).unwrap_or(&Type::I64);
-                        let size = Self::size_of_type(dest_ty, structs, enums);
-                        
-                        let (is_ref, inner_ty_str) = match base_ty {
-                            Type::Ref(inner) | Type::RefMut(inner) => (true, Self::c_type_str(inner.as_ref(), structs, enums)),
-                            _ => (false, "".to_string()),
-                        };
-                        
-                        let base_access = if is_ref {
-                            format!("(({}*){})->data", inner_ty_str, Self::val_to_c(base_val))
-                        } else {
-                            format!("{}.data", Self::val_to_c(base_val))
-                        };
-                        
-                        if size == 1 {
-                            code.push_str(&format!("    v_{} = {}[{}];\n", dest.0, base_access, offset));
-                        } else {
-                            code.push_str(&format!("    memcpy(&v_{}, &{}[{}], {} * sizeof(int64_t));\n", dest.0, base_access, offset, size));
-                        }
+                    Terminator::Drop { target, .. } => {
+                        code.push_str(&format!("    goto bb{};\n", target.0));
                     }
-                    MirInstruction::FieldSet(base_val, field, val) => {
-                        let base_ty = match base_val {
-                            MirValue::Var(v) => func.var_types.get(v).unwrap(),
-                            _ => &Type::I64,
-                        };
-                        let offset = Self::offset_of_field(base_ty, field, structs, enums);
-                        let val_ty = match val {
-                            MirValue::Var(v) => func.var_types.get(v).unwrap(),
-                            _ => &Type::I64,
-                        };
-                        let size = Self::size_of_type(val_ty, structs, enums);
-                        
-                        let (is_ref, inner_ty_str) = match base_ty {
-                            Type::Ref(inner) | Type::RefMut(inner) => (true, Self::c_type_str(inner.as_ref(), structs, enums)),
-                            _ => (false, "".to_string()),
-                        };
-                        
-                        let base_access = if is_ref {
-                            format!("(({}*){})->data", inner_ty_str, Self::val_to_c(base_val))
-                        } else {
-                            format!("{}.data", Self::val_to_c(base_val))
-                        };
-                        
-                        if size == 1 {
-                            code.push_str(&format!("    {}[{}] = {};\n", base_access, offset, Self::val_to_c(val)));
-                        } else {
-                            code.push_str(&format!("    memcpy(&{}[{}], &{}, {} * sizeof(int64_t));\n", base_access, offset, Self::val_to_c(val), size));
-                        }
+                    Terminator::Unreachable | Terminator::Resume => {
+                        code.push_str("    abort();\n");
                     }
-                    MirInstruction::ArrayAlloc(dest, elems) => {
-                        code.push_str(&format!("    v_{} = (int64_t)malloc({} * sizeof(int64_t));\n", dest.0, elems.len()));
-                        for (i, v) in elems.iter().enumerate() {
-                            code.push_str(&format!("    ((int64_t*)v_{})[{}] = {};\n", dest.0, i, Self::val_to_c(v)));
-                        }
-                    }
-                    MirInstruction::ArrayAllocDynamic(dest, size) => {
-                        code.push_str(&format!("    v_{} = (int64_t)malloc({} * sizeof(int64_t));\n", dest.0, Self::val_to_c(size)));
-                    }
-                    MirInstruction::ArrayGet(dest, base, idx) => {
-                        code.push_str(&format!("    v_{} = ((int64_t*){})[{}];\n", dest.0, Self::val_to_c(base), Self::val_to_c(idx)));
-                    }
-                    MirInstruction::ArraySet(base, idx, val) => {
-                        code.push_str(&format!("    ((int64_t*){})[{}] = {};\n", Self::val_to_c(base), Self::val_to_c(idx), Self::val_to_c(val)));
-                    }
-                    MirInstruction::StringConcat(dest, a, b) => {
-                        code.push_str(&format!("    v_{} = yk_string_concat({}, {});\n", dest.0, Self::val_to_c(a), Self::val_to_c(b)));
-                    }
-                    MirInstruction::Drop(_) => {} // Handled by GC/Stack
                 }
             }
-            match &bb.terminator {
-                MirTerminator::Return(Some(val)) => code.push_str(&format!("    return {};\n", Self::val_to_c(val))),
-                MirTerminator::Return(None) => code.push_str("    return;\n"),
-                MirTerminator::Branch(target) => code.push_str(&format!("    goto bb_{};\n", target.0)),
-                MirTerminator::CondBranch(cond, t_block, f_block) => {
-                    code.push_str(&format!("    if ({}) goto bb_{}; else goto bb_{};\n", Self::val_to_c(cond), t_block.0, f_block.0));
-                }
-                MirTerminator::Unreachable => code.push_str("    /* unreachable */\n"),
+            code.push_str("}\n\n");
+        }
+
+        // 5. Точка входа main() на C
+        code.push_str("int main(int argc, char** argv) {\n");
+        code.push_str("    (void)argc; (void)argv;\n");
+        if let Some(main_fn) = functions.iter().find(|f| f.name == "main") {
+            if main_fn.return_type == Type::Void {
+                code.push_str("    ykl_main();\n    return 0;\n");
+            } else {
+                code.push_str("    return (int)ykl_main();\n");
             }
+        } else {
+            code.push_str("    return 0;\n");
         }
         code.push_str("}\n");
-        code
-    }
 
-    fn val_to_c(val: &MirValue) -> String {
-        match val {
-            MirValue::ConstantInt(i) => i.to_string(),
-            MirValue::ConstantFloat(f) => f.to_string(),
-            MirValue::ConstantBool(b) => if *b { "1".to_string() } else { "0".to_string() },
-            MirValue::ConstantString(s) => format!("\"{}\"", s),
-            MirValue::Var(v) => format!("v_{}", v.0),
-        }
+        code
     }
 }

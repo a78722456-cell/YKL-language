@@ -83,6 +83,7 @@ dependencies = [
  "anyhow",
  "apl_ast",
  "apl_borrowck",
+ "apl_codegen",
  "apl_fmt",
  "apl_hir",
  "apl_lexer",
@@ -94,6 +95,16 @@ dependencies = [
  "ariadne",
  "clap",
  "colored",
+]
+
+[[package]]
+name = "apl_codegen"
+version = "0.1.0"
+dependencies = [
+ "apl_ast",
+ "apl_hir",
+ "apl_mir",
+ "thiserror",
 ]
 
 [[package]]

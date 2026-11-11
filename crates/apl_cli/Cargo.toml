@@ -16,7 +16,7 @@ apl_mir = { path = "../apl_mir" }
 apl_hir = { path = "../apl_hir" }
 # apl_opt = { path = "../apl_opt" }
 # apl_vm = { path = "../apl_vm" }
-# apl_codegen = { path = "../apl_codegen" }
+apl_codegen = { path = "../apl_codegen" }
 apl_runtime = { path = "../apl_runtime" }
 apl_stdlib = { path = "../apl_stdlib" }
 apl_fmt = { path = "../apl_fmt" }

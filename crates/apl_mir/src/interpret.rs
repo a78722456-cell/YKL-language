@@ -106,6 +106,27 @@ impl Interpreter {
     }
 
     pub fn call(&mut self, func_id: FunctionId, args: Vec<Value>) -> Result<Value, InterpretError> {
+        match func_id.0 {
+            99000 => {
+                let out: Vec<String> = args.iter().map(|a| format!("{}", a)).collect();
+                print!("{}", out.join(" "));
+                use std::io::Write;
+                let _ = std::io::stdout().flush();
+                return Ok(Value::Void);
+            }
+            99001 => {
+                let out: Vec<String> = args.iter().map(|a| format!("{}", a)).collect();
+                println!("{}", out.join(" "));
+                return Ok(Value::Void);
+            }
+            99002 => {
+                let out: Vec<String> = args.iter().map(|a| format!("{}", a)).collect();
+                eprintln!("{}", out.join(" "));
+                return Ok(Value::Void);
+            }
+            _ => {}
+        }
+
         if self.call_depth > 256 {
             return Err(InterpretError::StackOverflow);
         }
@@ -260,7 +281,10 @@ impl Interpreter {
                 frame.get(id).cloned().ok_or(InterpretError::UndefinedLocal(*id))
             }
             Place::Field { base, field } => {
-                let base_val = self.read_place(base, frame)?;
+                let mut base_val = self.read_place(base, frame)?;
+                while let Value::Ref(addr) = base_val {
+                    base_val = self.heap.get(addr).cloned().ok_or(InterpretError::InvalidMemoryAccess(addr))?;
+                }
                 match base_val {
                     Value::Aggregate(fields) => {
                         let idx = field.0 as usize;
@@ -311,6 +335,23 @@ impl Interpreter {
                             self.write_place(base, Value::Aggregate(fields), frame)
                         } else {
                             Err(InterpretError::TypeMismatch(format!("field {} out of bounds", idx)))
+                        }
+                    }
+                    Value::Ref(addr) => {
+                        if let Some(target) = self.heap.get_mut(addr) {
+                            if let Value::Aggregate(fields) = target {
+                                let idx = field.0 as usize;
+                                if idx < fields.len() {
+                                    fields[idx] = val;
+                                    Ok(())
+                                } else {
+                                    Err(InterpretError::TypeMismatch(format!("field {} out of bounds", idx)))
+                                }
+                            } else {
+                                Err(InterpretError::TypeMismatch("field write on non-aggregate in heap".to_string()))
+                            }
+                        } else {
+                            Err(InterpretError::InvalidMemoryAccess(addr))
                         }
                     }
                     _ => Err(InterpretError::TypeMismatch("field write on non-aggregate".to_string())),

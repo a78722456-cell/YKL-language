@@ -1,11 +1,13 @@
-// use apl_codegen::CCodeGenerator;
+use apl_codegen::{CCodeGenerator, CodegenFunction};
 use apl_lexer::Lexer;
 use apl_mir::interpret::{Interpreter, Value};
 use apl_parser::Parser;
 use clap::{Parser as ClapParser, Subcommand};
 use colored::*;
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 #[derive(ClapParser)]
 #[command(name = "apl")]
@@ -23,6 +25,7 @@ enum Commands {
     Build {
         #[arg(long)]
         release: bool,
+        input: Option<String>,
     },
     /// Compile and run the project
     Run {
@@ -81,14 +84,14 @@ fn main() -> anyhow::Result<()> {
                 name
             );
         }
-        Commands::Build { release } => {
+        Commands::Build { release, input } => {
             let profile = if release { "release" } else { "debug" };
             println!(
                 "{} compiling workspace [{}]...",
                 "-->".green().bold(),
                 profile
             );
-            compile_workspace(false, None, false, false, false, false, false)?;
+            compile_workspace(false, input.as_deref(), false, false, false, false, false, release)?;
             println!("{} build finished successfully!", "SUCCESS".green().bold());
         }
         Commands::Run { release, input, dump_hir, dump_mir, dump_cfg, dump_dataflow, dump_borrowck } => {
@@ -98,12 +101,12 @@ fn main() -> anyhow::Result<()> {
                 "-->".green().bold(),
                 profile
             );
-            compile_workspace(true, input.as_deref(), dump_hir, dump_mir, dump_cfg, dump_dataflow, dump_borrowck)?;
+            compile_workspace(true, input.as_deref(), dump_hir, dump_mir, dump_cfg, dump_dataflow, dump_borrowck, release)?;
             std::process::exit(0);
         }
         Commands::Test => {
             println!("{} running unit tests...", "-->".green().bold());
-            compile_workspace(false, None, false, false, false, false, false)?;
+            compile_workspace(false, None, false, false, false, false, false, false)?;
             println!("{} all tests passed!", "SUCCESS".green().bold());
         }
         Commands::Fmt => {
@@ -146,7 +149,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Lint => {
             println!("{} linting workspace...", "-->".green().bold());
-            compile_workspace(false, None, false, false, false, false, false)?;
+            compile_workspace(false, None, false, false, false, false, false, false)?;
             println!("{} 0 lint errors found.", "SUCCESS".green().bold());
         }
         Commands::Doc => {
@@ -185,7 +188,99 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dump_mir: bool, dump_cfg: bool, dump_dataflow: bool, dump_borrowck: bool) -> anyhow::Result<()> {
+fn build_native_executable(
+    codegen_funcs: &[CodegenFunction],
+    ast_prog: &apl_ast::Program,
+    release: bool,
+) -> anyhow::Result<()> {
+    let mut structs = HashMap::new();
+    let mut enums = HashMap::new();
+    for item in &ast_prog.items {
+        match item {
+            apl_ast::Item::Struct(st) => {
+                structs.insert(st.name.clone(), st.clone());
+            }
+            apl_ast::Item::Enum(en) => {
+                enums.insert(en.name.clone(), en.clone());
+            }
+            _ => {}
+        }
+    }
+
+    let c_code = CCodeGenerator::generate_program(codegen_funcs, &structs, &enums);
+    let c_file = "output.c";
+    std::fs::write(c_file, &c_code)?;
+    println!("   {} generated C11 source: {}", "-->".cyan().bold(), c_file);
+
+    let bin_name = if cfg!(windows) { "app.exe" } else { "app" };
+    let opt_flag = if release { "-O3" } else { "-O0" };
+
+    // 1. Try standard compilers in PATH
+    let compilers: &[(&str, &[&str])] = &[
+        ("clang", &[c_file, opt_flag, "-std=c11", "-o", bin_name]),
+        ("gcc", &[c_file, opt_flag, "-std=c11", "-o", bin_name]),
+        ("cl.exe", &["/nologo", if release { "/O2" } else { "/Od" }, c_file, &format!("/Fe:{}", bin_name)]),
+    ];
+
+    for (cc, args) in compilers {
+        if let Ok(status) = Command::new(cc).args(*args).status() {
+            if status.success() {
+                println!(
+                    "   {} compiled native binary '{}' via {}",
+                    "-->".green().bold(),
+                    bin_name,
+                    cc
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    // 2. On Windows, try MSVC Developer Command Prompt via vcvars64.bat if Visual Studio is installed
+    if cfg!(windows) {
+        let vs_batch_paths = [
+            r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
+            r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat",
+            r"C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat",
+            r"C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat",
+        ];
+
+        for batch in &vs_batch_paths {
+            if std::path::Path::new(batch).exists() {
+                let bat_script = format!(
+                    "@echo off\r\ncall \"{}\"\r\ncl.exe /nologo {} {} /Fe:{}\r\n",
+                    batch,
+                    if release { "/O2" } else { "/Od" },
+                    c_file,
+                    bin_name
+                );
+                let bat_path = "_apl_compile.bat";
+                let _ = std::fs::write(bat_path, &bat_script);
+                let res = Command::new("cmd").args(["/c", bat_path]).status();
+                let _ = std::fs::remove_file(bat_path);
+                if let Ok(status) = res {
+                    if status.success() {
+                        println!(
+                            "   {} compiled native binary '{}' via MSVC",
+                            "-->".green().bold(),
+                            bin_name
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
+    println!(
+        "   {} C11 source saved to '{}'. To compile to .exe, install clang/gcc or run from VS Developer Prompt.",
+        "note:".yellow().bold(),
+        c_file
+    );
+    Ok(())
+}
+
+fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dump_mir: bool, dump_cfg: bool, dump_dataflow: bool, dump_borrowck: bool, release: bool) -> anyhow::Result<()> {
     let source = if let Some(path) = input_file {
         let path = Path::new(path);
         if !path.is_file() {
@@ -354,10 +449,18 @@ fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dum
         }], start_block: apl_mir::BasicBlockId(0) }
     });
 
+    let mut struct_fields = HashMap::new();
+    for item in &prog.items {
+        if let apl_ast::Item::Struct(st) = item {
+            struct_fields.insert(st.name.clone(), st.fields.iter().map(|f| f.name.clone()).collect());
+        }
+    }
+
+    let mut codegen_funcs = Vec::new();
     for func in &hir_prog.functions {
         if func.is_extern { continue; }
 
-        let builder = apl_mir::lowering::MirBuilder::new();
+        let builder = apl_mir::lowering::MirBuilder::new().with_struct_fields(struct_fields.clone());
         let mir_body = builder.build(func);
 
         if let Err(e) = mir_body.validate() {
@@ -401,7 +504,18 @@ fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dum
             anyhow::bail!("Borrow checker errors found: {:?}", borrow_errors);
         }
 
+        codegen_funcs.push(CodegenFunction {
+            id: func.id,
+            name: func.name.clone(),
+            return_type: func.return_type.clone(),
+            body: mir_body.clone(),
+        });
         interpreter.register_function(func.id, &func.name, mir_body);
+    }
+
+    if !run_vm {
+        build_native_executable(&codegen_funcs, &prog, release)?;
+        return Ok(());
     }
 
     if run_vm {

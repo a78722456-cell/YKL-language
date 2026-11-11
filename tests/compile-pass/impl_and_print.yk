@@ -1,0 +1,17 @@
+struct Account {
+    id: i32,
+    balance: i32,
+}
+
+impl Account {
+    fn calculate_balance(&self, bonus: i32) -> i32 {
+        return self.balance + bonus;
+    }
+}
+
+fn main() -> i32 {
+    let acc = Account { id: 1, balance: 1500 };
+    let total = acc.calculate_balance(500);
+    println(total);
+    return 0;
+}

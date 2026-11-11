@@ -340,16 +340,20 @@ impl Parser {
         let mut params = Vec::new();
         while self.current().kind != TokenKind::RParen && self.current().kind != TokenKind::EOF {
             let param_span = self.current().span;
-            let param_name = if self.match_token(&TokenKind::Ampersand) {
-                let mut p = "&".to_string();
+            let mut is_ref = false;
+            let mut is_mut_ref = false;
+
+            if self.match_token(&TokenKind::Ampersand) {
                 if self.match_token(&TokenKind::Mut) {
-                    p.push_str("mut ");
+                    is_mut_ref = true;
+                } else {
+                    is_ref = true;
                 }
-                if let TokenKind::Ident(n) = self.advance().kind.clone() {
-                    p.push_str(&n);
-                }
-                p
-            } else if let TokenKind::Ident(n) = self.advance().kind.clone() {
+            } else {
+                let _ = self.match_token(&TokenKind::Mut);
+            }
+
+            let param_name = if let TokenKind::Ident(n) = self.advance().kind.clone() {
                 n
             } else {
                 return Err(ParseError::UnexpectedToken(
@@ -362,7 +366,14 @@ impl Parser {
             let ty = if self.match_token(&TokenKind::Colon) {
                 self.parse_type()?
             } else {
-                Type::Named("Self".to_string(), vec![])
+                let base_self = Type::Named("Self".to_string(), vec![]);
+                if is_mut_ref {
+                    Type::RefMut(Box::new(base_self))
+                } else if is_ref {
+                    Type::Ref(Box::new(base_self))
+                } else {
+                    base_self
+                }
             };
 
             params.push(Param {
