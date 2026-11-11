@@ -1,11 +1,11 @@
 pub mod points_to;
 
-use apl_mir::{MirBody, BasicBlockId, Statement, Terminator, Place, Operand, Rvalue, BorrowKind};
+use apl_mir::{MirBody, BasicBlockId, Statement, Place, Operand, Rvalue, BorrowKind};
 use apl_mir::analysis::{LivenessAnalysis, MaybeUninitializedLocals, EverInitializedLocals};
 use apl_mir::dataflow::{run_analysis, DataflowResults, DataflowAnalysis};
 use apl_ast::Span;
 use std::collections::HashSet;
-use points_to::{PointsToAnalysis, BorrowInfo};
+use points_to::PointsToAnalysis;
 
 #[derive(Debug)]
 pub enum BorrowckError {

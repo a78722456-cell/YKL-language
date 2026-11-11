@@ -734,8 +734,8 @@ fn analyze_expr_inner(&mut self, expr: &Expr) -> Type {
             ExprKind::EnumVariant(enum_name, var_name, args) => {
                 if let Some(en) = self.enums.get(enum_name).cloned() {
                     if let Some(_var) = en.variants.iter().find(|v| v.name == *var_name) {
-                        for (i, arg) in args.iter().enumerate() {
-                            let arg_ty = self.analyze_expr(arg);
+                        for (_i, arg) in args.iter().enumerate() {
+                            let _arg_ty = self.analyze_expr(arg);
                             // TODO: check arg_ty vs var.types[i]
                         }
                     } else {
@@ -766,14 +766,14 @@ fn analyze_expr_inner(&mut self, expr: &Expr) -> Type {
                                             let pat_ty =
                                                 var.types.get(j).cloned().unwrap_or(Type::Void);
                                             // Assume it's a generic substitution to target_ty generic args, but for MVP we use pat_ty directly
-                                            self.define_var(n.clone(), pat_ty, false, expr.span);
+                                            let _ = self.define_var(n.clone(), pat_ty, false, expr.span);
                                         }
                                     }
                                 }
                             }
                         }
                         apl_ast::Pattern::Ident(n) => {
-                            self.define_var(n.clone(), target_ty.clone(), false, expr.span);
+                            let _ = self.define_var(n.clone(), target_ty.clone(), false, expr.span);
                         }
                         _ => {}
                     }

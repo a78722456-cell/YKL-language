@@ -2,7 +2,6 @@
 use apl_lexer::Lexer;
 use apl_mir::interpret::{Interpreter, Value};
 use apl_parser::Parser;
-use apl_sema::SemanticAnalyzer;
 use clap::{Parser as ClapParser, Subcommand};
 use colored::*;
 use std::fs;
@@ -344,8 +343,8 @@ fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dum
     // Build MIR for all functions and register with interpreter
     let mut interpreter = Interpreter::new();
     let print_id = apl_hir::FunctionId(99000);
-    let println_id = apl_hir::FunctionId(99001);
-    let eprint_id = apl_hir::FunctionId(99002);
+    let _println_id = apl_hir::FunctionId(99001);
+    let _eprint_id = apl_hir::FunctionId(99002);
 
     interpreter.register_function(print_id, "__builtin_print", {
         // dummy body — we override via the name map, but interpreter uses body lookup first

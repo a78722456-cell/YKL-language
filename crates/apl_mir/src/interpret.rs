@@ -2,7 +2,7 @@
 /// This enables end-to-end `run` without a C compiler backend.
 
 use crate::*;
-use apl_ast::{BinaryOp, UnaryOp, Type};
+use apl_ast::{BinaryOp, UnaryOp};
 use apl_hir::{LocalId, FunctionId};
 use std::collections::HashMap;
 
@@ -402,8 +402,8 @@ impl Interpreter {
             (UnaryOp::Not, Value::Bool(b))  => Ok(Value::Bool(!b)),
             (UnaryOp::Not, Value::Int(n))   => Ok(Value::Bool(n == 0)),
             // Ref/RefMut produce a heap address — simplified here (Rvalue::Ref handles proper refs)
-            (UnaryOp::Ref, val)    => Ok(Value::Ref(0)),
-            (UnaryOp::RefMut, val) => Ok(Value::Ref(0)),
+            (UnaryOp::Ref, _val)    => Ok(Value::Ref(0)),
+            (UnaryOp::RefMut, _val) => Ok(Value::Ref(0)),
             (UnaryOp::Deref, Value::Ref(_)) => {
                 // actual deref via Place::Deref, here just return Void as placeholder
                 Ok(Value::Void)

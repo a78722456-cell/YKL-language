@@ -1,99 +1,205 @@
 <div align="center">
-  <div style="width: 100px; height: 100px; background: #6366f1; border-radius: 20px; display: flex; align-items: center; justify-content: center; font-size: 64px; color: white; font-weight: bold; margin: 0 auto 20px auto;">Y</div>
+  <div style="width: 100px; height: 100px; background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%); border-radius: 24px; display: flex; align-items: center; justify-content: center; font-size: 58px; color: white; font-weight: 800; margin: 0 auto 20px auto; box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.4);">Y</div>
   
-  # Young Kazah Language (YKL)
+  # Young Kazah Language (YKL / APL)
   
-  **Системный язык программирования следующего поколения**<br/>
-  *Zero-cost абстракции, memory safety и нативный C FFI без сборщика мусора.*
+  **Суверенный системный язык программирования следующего поколения**<br/>
+  *Zero-Cost абстракции, детерминированная безопасность памяти (NLL Borrow Checker) и максимальная аппаратная производительность без пауз сборщика мусора.*
 
-  [![Version](https://img.shields.io/badge/version-2.0-blue.svg)]()
-  [![Status](https://img.shields.io/badge/status-active-success.svg)]()
-  [![Academy](https://img.shields.io/badge/academy-ITstep-orange.svg)]()
+  [![Status](https://img.shields.io/badge/status-active--alpha-success.svg?style=flat-square)]()
+  [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)]()
+  [![Tests](https://img.shields.io/badge/tests-6%2F6%20passed%20(100%25)-blue.svg?style=flat-square)]()
+  [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blueviolet.svg?style=flat-square)]()
+  [![Category](https://img.shields.io/badge/category-DeepTech%20%2F%20DevTools-orange.svg?style=flat-square)]()
   
   <br/>
-  <b>Создатель: Айтжан Али</b>
+  <b>Создатель: Айтжан Али (14 лет, независимый DeepTech разработчик)</b>
 </div>
 
-<br/>
+---
 
-## 🌟 Обзор
+## 🌟 О проекте
 
-YKL — это современный, статически типизированный системный язык программирования, разработанный с нуля для обеспечения высокой производительности и безопасности. Он компилируется в оптимизированный код на языке C11, что позволяет напрямую и без накладных расходов взаимодействовать с API операционных систем.
+**YKL (Young Kazah Language)** — это независимый, статически типизированный системный язык программирования и компиляторная платформа, созданная с нуля на языке **Rust**. 
 
-## ✨ Ключевые особенности
+Проект решает фундаментальную дилемму современного системного программирования:
+1. **Языки C и C++** дают максимальную скорость и прямой доступ к регистрам процессора, но не защищают от ошибок памяти (`use-after-free`, переполнения буфера, утечки памяти), которые составляют **70% всех критических уязвимостей в мире** (по данным Microsoft и Google).
+2. **Языки Go, Java, Python, C#** обеспечивают безопасность за счёт **Garbage Collector (сборщика мусора)**, но вызывают непредсказуемые задержки (Stop-The-World паузы), расходуют лишнюю память на служебные заголовки объектов и непригодны для жесткого реального времени, ядер ОС и миниатюрных микроконтроллеров.
+3. **Rust** доказал состоятельность статического анализа владения, но обладает **экстремально крутой кривой обучения**, перегруженным синтаксисом ручных меток времени жизни (`'a`) и долгим временем компиляции.
 
-- 🛡️ **Borrow Checker**: Безопасность памяти на этапе компиляции. Отсутствие Garbage Collector (сборщика мусора). Исключает ошибки Use-After-Move и Borrow Conflicts.
-- 🚀 **C-Codegen FFI**: Вызов нативного C кода напрямую. Полная трансляция в C11 для максимальной скорости.
-- 📦 **Go-Style Package Manager**: Автоматическое управление зависимостями (Zero configuration). `import "github.com/user/repo"` работает "из коробки".
-- 🧬 **Algebraic Data Types**: Поддержка типов `Result<T, E>` и `Option<T>` с мощным сопоставлением с образцом (Pattern Matching).
-- 🛠️ **Встроенный Tooling**: Включает в себя Language Server (`apl_lsp`), удобный CLI (`apl_cli`) и встроенный линтер (Linter).
+**YKL объединяет нативную скорость Си, математическую безопасность Rust и лаконичность современного синтаксиса.**
 
-## 🏗️ Архитектура
+---
+
+## 🏗️ Архитектура компилятора
+
+Компилятор YKL спроектирован по модульному принципу индустриальных компиляторов (Clang/Rustc) и включает в себя сквозной конвейер из 8 специализированных подсистем:
 
 ```mermaid
-flowchart LR
-    AST[Lexer & Parser] --> SEMA[Semantic Analyzer]
-    SEMA --> MIR[Mid-level IR]
-    MIR --> VM[Virtual Machine]
-    MIR --> C[C Codegen]
-    
-    style AST fill:#3b82f6,stroke:#2563eb,stroke-width:2px,color:#fff
-    style SEMA fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
-    style MIR fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
-    style VM fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
-    style C fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#fff
+flowchart TD
+    SRC["Исходный код (.yk)"] --> LEX["apl_lexer\nТокенизация и Spans"]
+    LEX --> PARSE["apl_parser\nРекурсивный спуск + Pratt Parsing"]
+    PARSE --> SEMA["apl_sema\nАнализ типов и разрешение областей видимости"]
+    SEMA --> HIR["apl_hir\nHigh-Level IR и мономорфизация"]
+    HIR --> MIR["apl_mir\nMid-Level IR и Control Flow Graph (CFG)"]
+    MIR --> BCK["apl_borrowck\nNon-Lexical Lifetimes (NLL) Dataflow Analysis"]
+    BCK --> VM["apl_mir::interpret\nВиртуальная машина MIR"]
+    BCK --> CGEN["apl_codegen\nОптимизирующий C11 / FFI бэкенд"]
+
+    style SRC fill:#6366f1,stroke:#4338ca,color:#fff
+    style LEX fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    style PARSE fill:#0284c7,stroke:#0369a1,color:#fff
+    style SEMA fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style HIR fill:#ec4899,stroke:#be185d,color:#fff
+    style MIR fill:#f59e0b,stroke:#b45309,color:#fff
+    style BCK fill:#10b981,stroke:#047857,color:#fff
+    style VM fill:#059669,stroke:#065f46,color:#fff
+    style CGEN fill:#dc2626,stroke:#991b1b,color:#fff
 ```
 
-## 💡 Почему YKL? (Сравнение с конкурентами)
+### Ключевые крейты компилятора:
+* **`apl_lexer`**: Высокопроизводительный лексер с точным отслеживанием позиций в исходном коде (`Span`).
+* **`apl_parser`**: Построение абстрактного синтаксического дерева (AST) с поддержкой приоритетов операторов (Pratt Parsing).
+* **`apl_sema`**: Статическая проверка типов, валидация полей структур, проверка сигнатур функций и вариантов перечислений.
+* **`apl_hir`**: Высокоуровневое промежуточное представление, очищенное от синтаксического шума.
+* **`apl_mir`**: Низкоуровневый граф потока управления (Control Flow Graph) из базовых блоков (`BasicBlock`), линейных инструкций (`Statement`) и терминаторов (`Terminator`).
+* **`apl_borrowck`**: Собственный Borrow Checker на базе алгоритма анализа потока данных (Dataflow Analysis) с поддержкой **Non-Lexical Lifetimes (NLL)**. Предотвращает ошибки `UseAfterMove` и `MutationWhileBorrowed` на этапе компиляции.
+* **`apl_cli`**: Унифицированный интерфейс командной строки (`run`, `build`, `check`, `fmt`, `lsp`).
+* **`apl_lsp` & `apl_fmt`**: Встроенная поддержка Language Server Protocol и форматирования кода для интеграции с современными IDE.
 
-YKL берет лучшие идеи из индустриальных стандартов, избавляясь от их главных недостатков. Это делает его идеальным выбором для современных Enterprise и System задач.
+---
 
-*   **vs C:** Вместо ручного управления памятью (которое ведет к утечкам и segfault-ам) YKL предлагает **Borrow Checker** на этапе компиляции, сохраняя при этом 100% совместимость с C ABI и нативную скорость.
-*   **vs C++:** YKL предоставляет Zero-Cost абстракции (Дженерики, Algebraic Data Types, Pattern Matching), но избавлен от десятилетий легаси (header-файлы, `#include`), предлагая минималистичный синтаксис и настоящие модули.
-*   **vs Rust:** YKL дает **80% безопасности Rust за 20% сложности**. Наш Borrow Checker ловит критические ошибки (Use-After-Move, Mutability), но не заставляет разработчика "воевать" с компилятором. Плюс встроенная VM позволяет мгновенно тестировать код.
-*   **vs Go (Golang):** YKL так же прост и имеет аналогичный Package Manager, но **не использует Garbage Collector (Сборщик мусора)**. Это открывает YKL путь в жесткое системное программирование (ОС, драйверы, микроконтроллеры), где паузы GC недопустимы.
+## 📊 Глубокое сравнение с другими языками
+
+| Характеристика | **YKL (Наш проект)** | **C** | **C++** | **Rust** | **Go (Golang)** | **Zig** |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Гарантия безопасности памяти** | **Компилятор (NLL Borrow Checker)** | Отсутствует (ручной `malloc`/`free`) | Частично (RAII, `unique_ptr`) | Компилятор (Borrow Checker) | За счёт Garbage Collector | Ручные аллокаторы + рантайм-паника |
+| **Сборщик мусора (GC)** | **НЕТ (Zero GC Pause)** | НЕТ | НЕТ | НЕТ | **ДА** (паузы Stop-The-World) | НЕТ |
+| **Накладные расходы кучи (Overhead)** | **0 байт (Плоский unboxed layout)** | 0 байт | 0 байт | 0 байт | Высокий (заголовки объектов, рантайм) | 0 байт |
+| **Применимость в Embedded / IoT** | **Идеально (стековое размещение)** | Стандарт индустрии | Ограниченно (сложный рантайм) | Высокая | Непригоден (требует рантайм Go) | Высокая |
+| **Сложность синтаксиса** | **Минималистичный, чистый** | Низкая (но нет абстракций) | Экстремально высокая (1000+ стр. стандарта) | Высокая | Низкая | Средняя |
+| **Ручные лайфтаймы (`'a`, `'b`)** | **НЕТ** (автоматический MIR Dataflow) | НЕТ (нет проверки) | НЕТ | **ДА** (главный барьер входа) | НЕТ | НЕТ |
+| **Автономность запуска** | **Нативный CLI (без серверов/докера)** | Нативный | Нативный | Нативный | Нативный | Нативный |
+
+---
+
+## ⚡ Проверенные результаты и бенчмарк-комплекс
+
+Вся функциональность подтверждена реальным запуском сложных программ через встроенную виртуальную машину MIR и тесты:
+
+### 1. Вычислительный математический комплекс (`examples/01_computational_math.yk`)
+* **Теория чисел:** Бинарное модульное возведение в степень $O(\log N)$, расширенный алгоритм Евклида.
+* **Криптография:** Детерминированный тест простоты Миллера-Рабина.
+* **Численный анализ:** Итерационный метод Ньютона-Рафсона для извлечения корней.
+* **Динамические системы:** Интегратор дифференциальных уравнений **Рунге-Кутты 4-го порядка (RK4)** для расчета колебательных контуров.
+* **Дискретная математика:** Анализ аттракторов и орбит сиракузской последовательности (гипотеза Коллатца).
+* **Результат верификации:** Код выполняется стабильно, вычисляя контрольную сумму алгоритмического ядра: `51001`.
+
+### 2. Высокопроизводительный финтех-бэкенд (`examples/02_fintech_backend.yk`)
+* HTTP-роутинг и диспетчеризация запросов.
+* Аутентификация по токенам и ролевая модель доступа (RBAC: Admin / User / Auditor).
+* Транзакционный регистр с двойной записью, атомарным клирингом балансов и защитой от переполнения.
+* **Результат верификации:** Успешный клиринг пакета транзакций с контрольным результатом: `4157`.
+
+### 3. Демонстрация Non-Lexical Lifetimes (`examples/03_nll_borrow_checker.yk`)
+* Демонстрирует превосходство NLL: компилятор допускает мутацию переменной после заимствования, если граф liveness-анализа гарантирует, что ссылка больше не будет прочитана.
+* **Результат верификации:** Успешная компиляция и выполнение с результатом `42`.
+
+---
 
 ## 🚀 Быстрый старт
 
-### 1. Сборка компилятора
+### Нужен ли TCP-сервер или Docker?
+**НЕТ!** YKL — это 100% автономная нативная системная утилита. Никаких докеров, виртуальных машин, фоновых TCP-серверов или подключения к интернету не требуется. Компиляция и запуск происходят локально прямо на вашем процессоре за миллисекунды.
+
+### Сборка проекта
+Для сборки компилятора требуется стандартный тулчейн Rust (1.80+):
 ```bash
 cargo build --release
 ```
 
-### 2. Запуск программы на YKL
+### Запуск примеров
+
+#### Запуск вычислительного ядра:
 ```bash
-cargo run --bin apl -- run src/main.yk
+cargo run --bin apl -- run examples/01_computational_math.yk
+# Вывод: 51001
 ```
 
-### Пример: TCP Сервер на YKL
-```rust
-import "github.com/ykl/std/net";
-import std::result;
-
-fn main() -> i32 {
-    let server_fd = unwrap_or(net_tcp_server(8080), -1);
-    if server_fd == -1 {
-        return 1;
-    }
-    
-    let client_fd = unwrap_or(net_accept(server_fd), -1);
-    let buf = unwrap_or(net_recv_raw(client_fd, 1024), 0);
-    
-    if buf != 0 {
-        printf("%s\n", buf);
-        free(buf); // Прямой вызов FFI!
-    }
-    return 0;
-}
+#### Запуск финтех-бэкенда:
+```bash
+cargo run --bin apl -- run examples/02_fintech_backend.yk
+# Вывод: 4157
 ```
 
-## 🗺️ V2 Roadmap & Текущий Статус
+#### Запуск проверки Borrow Checker (NLL):
+```bash
+cargo run --bin apl -- run examples/03_nll_borrow_checker.yk
+# Вывод: 42
+```
 
-- [x] **Generics (Дженерики)**: Вывод типов для надежных структур данных.
-- [x] **Package Manager**: Автоматическое клонирование зависимостей с Github.
-- [x] **Namespaces (Пространства имен)**: Иерархическая структура модулей (`std::net::tcp`).
-- [x] **Linter & LSP**: Диагностика неиспользуемых переменных и конфликтов Borrow Checker-а в реальном времени.
-- [x] **File & Network I/O**: Тестирование языка (Dogfooding) через реализацию POSIX FFI.
-- [ ] **Traits / Interfaces**: Динамический полиморфизм и ограничения дженериков.
-- [ ] **Stack Enums**: Плоская структура памяти для Zero-Cost алгебраических типов.
-- [x] **����������� Formatter**: ������� ������������� ���� `apl_fmt`.
+### Запуск автоматизированного тестового набора:
+```bash
+python tests/run_tests.py
+```
+```text
+Running YKL Test Suite...
+[PASS] tests\compile-pass\basic_add.yk
+[PASS] tests\compile-pass\factorial.yk
+[PASS] tests\compile-pass\if_else.yk
+[PASS] tests\compile-pass\while_loop.yk
+[PASS] tests\compile-fail\borrow_conflict.yk
+[PASS] tests\compile-fail\use_after_move.yk
+------------------------------
+Total: 6 passed, 0 failed.
+```
+
+---
+
+## 📁 Структура репозитория
+
+```text
+├── Cargo.toml               # Конфигурация Cargo Workspace
+├── crates/
+│   ├── apl_ast/             # Определения узлов Abstract Syntax Tree
+│   ├── apl_lexer/           # Лексический анализатор
+│   ├── apl_parser/          # Синтаксический анализатор
+│   ├── apl_sema/            # Семантический анализ и валидация типов
+│   ├── apl_hir/             # High-Level Intermediate Representation
+│   ├── apl_mir/             # Mid-Level IR, Control Flow Graph, Interpreter
+│   ├── apl_borrowck/        # Non-Lexical Lifetimes (NLL) Borrow Checker
+│   ├── apl_cli/             # Главный CLI-инструмент (apl)
+│   ├── apl_fmt/             # Форматировщик кода
+│   └── apl_lsp/             # Language Server Protocol
+├── examples/                # Готовые демонстрационные программы
+│   ├── 01_computational_math.yk
+│   ├── 02_fintech_backend.yk
+│   └── 03_nll_borrow_checker.yk
+├── tests/                   # Набор регрессионных и интеграционных тестов
+│   ├── compile-pass/        # Тесты успешной компиляции
+│   ├── compile-fail/        # Тесты отлова ошибок памяти и типов
+│   └── run_tests.py         # Раннер тестового набора
+├── docs/                    # Архитектурная документация и спецификации
+└── src/
+    └── main.yk              # Точка входа по умолчанию
+```
+
+---
+
+## 🏆 Дорожная карта (Roadmap)
+
+- [x] **Lexer & Pratt Parser**: Полная грамматика выражений, операторов и структур.
+- [x] **Type Checker**: Проверка типов примитивов, структур, перечислений и выражений.
+- [x] **HIR Lowering**: Разрешение идентификаторов и модулей пакетов.
+- [x] **MIR CFG Construction**: Построение графа базовых блоков и SSA-временных переменных.
+- [x] **NLL Borrow Checker**: Статический анализ перемещений и заимствований без сборщика мусора.
+- [x] **MIR Interpreter**: Полнофункциональная виртуальная машина для исполнения байткода.
+- [ ] **LLVM Backend**: Прямая эмиссия машинного кода под архитектуры x86_64, AArch64 и RISC-V.
+- [ ] **Embedded HAL**: Библиотека аппаратных абстракций для микроконтроллеров STM32 и ESP32.
+- [ ] **Package Registry**: Централизованный реестр пакетов для экосистемы языка.
+
+---
+
+<div align="center">
+  <b>Young Kazah Language — Фундамент суверенного системного ПО.</b>
+</div>

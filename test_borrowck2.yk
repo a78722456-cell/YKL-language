@@ -1,6 +1,0 @@
-fn main() -> i32 {
-    let mut x = 10;
-    let y = &mut x; // Borrows x
-    x = 20; // NO ERROR because y is never used again (NLL)
-    return x;
-}

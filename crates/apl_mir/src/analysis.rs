@@ -1,6 +1,6 @@
 use crate::*;
 use std::collections::HashSet;
-use crate::dataflow::{DataflowAnalysis, DataflowResults, run_analysis};
+use crate::dataflow::DataflowAnalysis;
 
 #[derive(Clone, PartialEq)]
 pub struct MaybeUninitializedLocals {

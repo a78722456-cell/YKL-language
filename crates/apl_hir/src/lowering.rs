@@ -343,8 +343,18 @@ impl HirLowering {
                 }
                 
                 if let ExprKind::Ident(name) = &callee.kind {
-                    if let Some(&func_id) = self.func_map.get(name) {
-                        let ret_ty = if let Some(f) = self.functions.get(name) {
+                    let full_pkg = format!("{}::{}", self.current_package, name);
+                    let target_name = if self.func_map.contains_key(name) {
+                        Some(name.as_str())
+                    } else if !self.current_package.is_empty() && self.func_map.contains_key(&full_pkg) {
+                        Some(full_pkg.as_str())
+                    } else {
+                        None
+                    };
+
+                    if let Some(target) = target_name {
+                        let func_id = *self.func_map.get(target).unwrap();
+                        let ret_ty = if let Some(f) = self.functions.get(target) {
                             f.return_type.clone()
                         } else {
                             Type::Void
@@ -536,21 +546,6 @@ impl HirLowering {
                 HirExpr {
                     kind: HirExprKind::Block(h_block, ret_expr),
                     ty: ret_ty,
-                    span: expr.span,
-                }
-            }
-            ExprKind::Break => {
-                HirExpr { kind: HirExprKind::Break, ty: Type::Void, span: expr.span }
-            }
-            ExprKind::Continue => {
-                HirExpr { kind: HirExprKind::Continue, ty: Type::Void, span: expr.span }
-            }
-            ExprKind::Assign(lhs, rhs) => {
-                let h_lhs = self.lower_expr(lhs);
-                let h_rhs = self.lower_expr(rhs);
-                HirExpr {
-                    kind: HirExprKind::Assign(Box::new(h_lhs), Box::new(h_rhs)),
-                    ty: Type::Void,
                     span: expr.span,
                 }
             }

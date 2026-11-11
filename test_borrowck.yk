@@ -1,7 +1,0 @@
-fn main() -> i32 {
-    let mut x = 10;
-    let y = &mut x;
-    x = 20;
-    let z = y;
-    return x;
-}

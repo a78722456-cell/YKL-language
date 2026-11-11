@@ -1,0 +1,128 @@
+// ==========================================
+// YKL Backend Service Engine v1.0
+// Micro-banking & Transaction Pipeline
+// ==========================================
+
+// 1. Auth Module
+fn verify_token(token: i32) -> i32 {
+    if token == 9901 {
+        return 1;
+    }
+    if token == 5502 {
+        return 2;
+    }
+    if token == 1103 {
+        return 3;
+    }
+    return 0;
+}
+
+// 2. Database Layer (In-Memory Table Simulation)
+fn db_get_balance(user_id: i32) -> i32 {
+    if user_id == 101 { 
+        return 15000; 
+    }
+    if user_id == 102 { 
+        return 4200; 
+    }
+    if user_id == 103 { 
+        return 0; 
+    }
+    return 0 - 1;
+}
+
+fn db_is_active(user_id: i32) -> bool {
+    if user_id == 101 { 
+        return true; 
+    }
+    if user_id == 102 { 
+        return true; 
+    }
+    if user_id == 103 { 
+        return false; 
+    }
+    return false;
+}
+
+// 3. Business Logic Controllers
+fn handle_get_balance(token: i32, user_id: i32) -> i32 {
+    let role = verify_token(token);
+    if role == 0 {
+        return 401;
+    }
+
+    if !db_is_active(user_id) {
+        return 403;
+    }
+
+    let bal = db_get_balance(user_id);
+    if bal < 0 {
+        return 404;
+    }
+
+    return 200;
+}
+
+fn handle_transfer(token: i32, from_id: i32, to_id: i32, amount: i32) -> i32 {
+    let role = verify_token(token);
+    if role == 0 {
+        return 401;
+    }
+
+    if amount <= 0 {
+        return 400;
+    }
+
+    if !db_is_active(from_id) {
+        return 403;
+    }
+
+    if !db_is_active(to_id) {
+        return 404;
+    }
+
+    let sender_bal = db_get_balance(from_id);
+    if sender_bal < amount {
+        return 402;
+    }
+
+    return 201;
+}
+
+// 4. Batch Pipeline & Audit Engine
+fn run_batch_settlement(batch_size: i32) -> i32 {
+    let mut total_settled = 0;
+    let mut i = 1;
+
+    while i <= batch_size {
+        let fee = i * 2;
+        total_settled = total_settled + fee;
+        i = i + 1;
+    }
+
+    return total_settled;
+}
+
+// 5. API Gateway Router & Main
+fn main() -> i32 {
+    // 1. Проверка баланса клиентом (200 OK)
+    let res1 = handle_get_balance(1103, 101);
+
+    // 2. Невалидный токен (401 Unauthorized)
+    let res2 = handle_get_balance(9999, 101);
+
+    // 3. Заблокированный аккаунт (403 Forbidden)
+    let res3 = handle_get_balance(1103, 103);
+
+    // 4. Успешный трансфер (201 Created)
+    let res4 = handle_transfer(9901, 101, 102, 500);
+
+    // 5. Недостаточно средств (402 Payment Required)
+    let res5 = handle_transfer(9901, 102, 101, 999999);
+
+    // 6. Пакетный клиринг (50 транзакций)
+    let settlement = run_batch_settlement(50);
+
+    let status_sum = res1 + res2 + res3 + res4 + res5;
+    return status_sum + settlement;
+}

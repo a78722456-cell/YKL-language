@@ -1,4 +1,0 @@
-
-package pkg_a;
-fn hello() -> i32 { 42 }
-

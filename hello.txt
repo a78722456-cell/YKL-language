@@ -1,1 +1,0 @@
-Hello from YKL File I/O! This text was read from a real file on disk using zero-cost C FFI.
