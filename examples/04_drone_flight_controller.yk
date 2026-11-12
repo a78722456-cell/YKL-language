@@ -1,0 +1,130 @@
+// ============================================================================
+// Young Kazah Language (YKL 2.0) — Промышленный ПИД-регулятор (PID Controller)
+// Задача: Стабилизация высоты полёта БПЛА (квадрокоптера) в реальном времени
+// ============================================================================
+// Особенности для демонстрации жюри:
+// 1. Фиксированная точка (SCALE = 1000): работает даже на МК без FPU (STM32F0 / AVR)
+// 2. Защита интегратора от насыщения (Anti-Windup Clamping) и ограничение ШИМ (0..1000)
+// 3. Детерминированная память: 0 байт в куче (Heap), 0 байт GC, всё на стеке
+// 4. Синтаксис YKL 2.0: методы внутри struct, короткое объявление `:=`, Auto-borrowing
+// ============================================================================
+
+// Состояние физического объекта управления (квадрокоптер в вертикальном канале)
+// Размер в ОЗУ микроконтроллера: ровно 12 байт (3 x i32) на стеке
+struct DroneState {
+    altitude_mm: int      // Текущая высота по барометру/лидару (мм)
+    velocity_mm_s: int    // Вертикальная скорость (мм/с)
+    motor_pwm: int        // Текущий сигнал ШИМ на бесколлекторные моторы (0..1000)
+
+    // Физическая модель шага симуляции (dt = 100 мс = 0.1 с):
+    // Тяга моторов преодолевает гравитацию (g = 9810 мм/с^2) и сопротивление воздуха
+    fn step_physics() {
+        // Ускорение: (Тяга_ШИМ * 20) - Гравитация(9810) - Трение_воздуха
+        accel_mm_s2 := (self.motor_pwm * 20) - 9810 - (self.velocity_mm_s / 5)
+
+        // Интегрирование скорости и высоты за шаг dt = 0.1 с (деление на 10)
+        self.velocity_mm_s = self.velocity_mm_s + (accel_mm_s2 / 10)
+        self.altitude_mm = self.altitude_mm + (self.velocity_mm_s / 10)
+
+        // Земля: высота не может быть ниже 0 мм
+        if self.altitude_mm < 0 {
+            self.altitude_mm = 0
+            self.velocity_mm_s = 0
+        }
+    }
+}
+
+// Дискретный ПИД-регулятор с защитой Anti-Windup
+// Размер в ОЗУ микроконтроллера: ровно 24 байта (6 x i32) на стеке
+struct PidController {
+    kp: int               // Пропорциональный коэффициент (масштаб x1000)
+    ki: int               // Интегральный коэффициент (масштаб x1000)
+    kd: int               // Дифференциальный коэффициент (масштаб x1000)
+    integral_sum: int     // Накопленный интеграл ошибки
+    prev_error: int       // Ошибка на предыдущем такте (для расчёта производной D)
+    max_pwm: int          // Аппаратный предел ШИМ контроллера моторов (1000)
+
+    // Расчёт управляющего сигнала ШИМ по показаниям датчика высоты
+    // Параметр drone передаётся по ссылке (&DroneState) через Auto-borrowing!
+    fn compute_pwm(drone: &DroneState, target_altitude_mm: int) -> int {
+        error := target_altitude_mm - drone.altitude_mm
+
+        // 1. Пропорциональная составляющая (P): реакция на текущее отклонение
+        p_term := (self.kp * error) / 1000
+
+        // 2. Интегральная составляющая (I) с защитой Anti-Windup:
+        // компенсирует вес дрона (висение) и постоянный ветер
+        self.integral_sum = self.integral_sum + error
+        if self.integral_sum > 30000 {
+            self.integral_sum = 30000
+        }
+        if self.integral_sum < -30000 {
+            self.integral_sum = -30000
+        }
+        i_term := (self.ki * self.integral_sum) / 1000
+
+        // 3. Дифференциальная составляющая (D): гасит раскачку и перелёт цели
+        derivative := error - self.prev_error
+        d_term := (self.kd * derivative) / 1000
+        self.prev_error = error
+
+        // Суммарный выход ПИД-регулятора + базовый газ компенсации гравитации (490)
+        raw_pwm := 490 + p_term + i_term + d_term
+
+        // Аппаратное насыщение (Clamping) сигнала ШИМ в диапазон 0..max_pwm
+        if raw_pwm > self.max_pwm {
+            return self.max_pwm
+        }
+        if raw_pwm < 0 {
+            return 0
+        }
+        return raw_pwm
+    }
+}
+
+fn main() -> int {
+    println("=== YKL 2.0 Real-Time PID Flight Controller (Target: 1000 mm) ===")
+
+    // Инициализация объектов на стеке (0 байт динамической кучи)
+    drone := DroneState {
+        altitude_mm: 0,
+        velocity_mm_s: 0,
+        motor_pwm: 0
+    }
+
+    // Коэффициенты: Kp = 1.200, Ki = 0.080, Kd = 3.500 (в масштабе x1000)
+    pid := PidController {
+        kp: 1200,
+        ki: 80,
+        kd: 3500,
+        integral_sum: 0,
+        prev_error: 1000,
+        max_pwm: 1000
+    }
+
+    target_mm := 1000
+    tick := 0
+
+    // Цикл управления реального времени (25 тактов по 100 мс = 2.5 секунды полёта)
+    while tick < 25 {
+        // Auto-borrowing: drone передаётся по адресу без копирования структуры
+        pwm := pid.compute_pwm(drone, target_mm)
+        drone.motor_pwm = pwm
+
+        // Шаг физической модели дрона
+        drone.step_physics()
+
+        print("Такт ")
+        print(tick)
+        print(" | Высота (мм): ")
+        print(drone.altitude_mm)
+        print(" | Скорость (мм/с): ")
+        print(drone.velocity_mm_s)
+        print(" | ШИМ мотора: ")
+        println(drone.motor_pwm)
+
+        tick = tick + 1
+    }
+
+    return 0
+}

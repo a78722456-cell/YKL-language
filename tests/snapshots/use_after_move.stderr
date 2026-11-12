@@ -1,6 +1,6 @@
 error[E0382]: use of moved value 's'
- --> use_after_move.yk:3:15
+ --> use_after_move.yk:4:15
   |
-3 |     let s2 = s;
+4 |     let s3 = s;
   |               ^ error occurred here
   |

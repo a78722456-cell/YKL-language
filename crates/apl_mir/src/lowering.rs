@@ -205,13 +205,20 @@ impl MirBuilder {
                 let mut op_args = Vec::with_capacity(args.len() + 1);
 
                 // 1. Receiver is first argument (self) - Auto-borrow as reference!
-                let rec_place = self.lower_place(receiver);
-                let rec_temp = self.make_temp(
-                    Rvalue::Ref(crate::Region(0), BorrowKind::Mut, rec_place),
-                    receiver.span,
-                    Type::RefMut(Box::new(receiver.ty.clone())),
-                );
-                op_args.push(Operand::Copy(rec_temp));
+                let rec_op = if matches!(receiver.ty, Type::Ref(_) | Type::RefMut(_)) {
+                    let rv = self.lower_expr(receiver);
+                    let temp = self.make_temp(rv, receiver.span, receiver.ty.clone());
+                    Operand::Copy(temp)
+                } else {
+                    let rec_place = self.lower_place(receiver);
+                    let rec_temp = self.make_temp(
+                        Rvalue::Ref(crate::Region(0), BorrowKind::Mut, rec_place),
+                        receiver.span,
+                        Type::RefMut(Box::new(receiver.ty.clone())),
+                    );
+                    Operand::Copy(rec_temp)
+                };
+                op_args.push(rec_op);
 
                 // 2. Remaining arguments - Auto-borrowing!
                 for (i, arg) in args.iter().enumerate() {

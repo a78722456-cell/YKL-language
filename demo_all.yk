@@ -1,19 +1,17 @@
 struct Account {
-    id: i32,
-    balance: i32,
-}
+    id: int
+    balance: int
 
-impl Account {
-    fn calculate_balance(&self, bonus: i32) -> i32 {
-        return self.balance + bonus;
+    fn calculate_balance(&self, bonus: int) -> int {
+        return self.balance + bonus
     }
 }
 
-fn main() -> i32 {
-    println("=== Test YKL: println + impl methods + native build ===");
-    let acc = Account { id: 1, balance: 1500 };
-    let total = acc.calculate_balance(500);
-    print("Account balance: ");
-    println(total);
-    return 0;
+fn main() -> int {
+    println("=== YKL 2.0: println + struct methods + native build ===")
+    acc := Account { id: 1, balance: 1500 }
+    total := acc.calculate_balance(500)
+    print("Account balance: ")
+    println(total)
+    return 0
 }

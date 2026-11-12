@@ -1,7 +1,7 @@
 use apl_test::{compile_source, format_diagnostics};
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[test]
 fn run_compile_fail_tests() {

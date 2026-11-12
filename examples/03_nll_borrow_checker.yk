@@ -1,21 +1,27 @@
 // ============================================================================
-// Young Kazah Language (YKL) - Non-Lexical Lifetimes (NLL) Borrow Checker
+// Young Kazah Language (YKL 2.0) - Non-Lexical Lifetimes (NLL) Borrow Checker
 // ============================================================================
-// Demonstrates how YKL's static borrow checker uses fine-grained Non-Lexical
-// Lifetimes (NLL) on the MIR Control Flow Graph:
-// - `y` borrows `x` mutably.
-// - `x` is then safely mutated because the compiler's liveness dataflow analysis
-//   proves `y` is never accessed again down this execution path.
+// Демонстрация работы статического анализатора заимствований (Borrow Checker):
+// - `y` заимствует `x` изменяемо (&mut).
+// - Затем `x` безопасно модифицируется, так как анализ потока данных (liveness dataflow)
+//   доказывает, что время жизни ссылки `y` закончилось (NLL).
+// - Нулевые накладные расходы во время выполнения (0 байт в куче, без GC).
 // ============================================================================
 
-fn main() -> i32 {
-    let mut x = 10;
+fn main() -> int {
+    println("=== YKL 2.0 Non-Lexical Lifetimes (NLL) Proof ===")
+
+    x := 10
     
-    // y borrows x mutably:
-    let y = &mut x;
+    // y заимствует x мутабельно
+    y := &mut x
     
-    // Safe mutation: y is dead after this point according to NLL dataflow
-    x = 42;
+    // NLL: время жизни ссылки y завершилось здесь, так как y больше не используется.
+    // Статический анализатор YKL безопасно разрешает мутацию x:
+    x = 42
     
-    return x;
+    print("Результат x: ")
+    println(x)
+
+    return 0
 }

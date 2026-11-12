@@ -468,26 +468,7 @@ fn analyze_expr_inner(&mut self, expr: &Expr) -> Type {
             ExprKind::Ident(name) => {
                 if let Some(var) = self.get_var_clone(name) {
                     let var_ty = var.ty.clone();
-                    let is_copy = matches!(
-                        var.ty,
-                        Type::I8
-                            | Type::I16
-                            | Type::I32
-                            | Type::I64
-                            | Type::ISize
-                            | Type::U8
-                            | Type::U16
-                            | Type::U32
-                            | Type::U64
-                            | Type::USize
-                            | Type::F32
-                            | Type::F64
-                            | Type::Bool
-                            | Type::Char
-                            | Type::Ref(_)
-                            | Type::Ptr
-                            | Type::String
-                    );
+                    let is_copy = var.ty.is_copy();
                     if let OwnershipState::Moved(_moved_span) = var.ownership {
                         self.errors.push(SemaError::UseAfterMove(name.clone(), expr.span));
                     }

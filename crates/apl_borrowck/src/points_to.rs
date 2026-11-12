@@ -108,7 +108,13 @@ impl DataflowAnalysis for PointsToAnalysis {
         }
     }
 
-    fn transfer_terminator(&self, _term: &Terminator, _state: &mut Self::Domain) {
-        // We can handle Call returns if they propagate lifetimes, but for this simplified version, assume they don't.
+    fn transfer_terminator(&self, term: &Terminator, state: &mut Self::Domain) {
+        if let Terminator::Call { args, .. } = term {
+            for arg in args {
+                if let Operand::Copy(Place::Local(id)) | Operand::Move(Place::Local(id)) = arg {
+                    state.map.remove(id);
+                }
+            }
+        }
     }
 }

@@ -240,9 +240,16 @@ impl Interpreter {
             Rvalue::Use(op) => self.eval_operand(op, frame),
             Rvalue::Ref(_, _kind, place) => {
                 let val = self.read_place(place, frame)?;
-                let addr = self.heap.len();
-                self.heap.push(val);
-                Ok(Value::Ref(addr))
+                if let Value::Ref(addr) = val {
+                    Ok(Value::Ref(addr))
+                } else {
+                    let addr = self.heap.len();
+                    self.heap.push(val);
+                    if let Place::Local(id) = place {
+                        frame.insert(*id, Value::Ref(addr));
+                    }
+                    Ok(Value::Ref(addr))
+                }
             }
             Rvalue::BinaryOp(op, l, r) => {
                 let lv = self.eval_operand(l, frame)?;
@@ -305,7 +312,10 @@ impl Interpreter {
                 }
             }
             Place::Index { base, index } => {
-                let base_val = self.read_place(base, frame)?;
+                let mut base_val = self.read_place(base, frame)?;
+                while let Value::Ref(addr) = base_val {
+                    base_val = self.heap.get(addr).cloned().ok_or(InterpretError::InvalidMemoryAccess(addr))?;
+                }
                 let idx_val = frame.get(index).cloned().ok_or(InterpretError::UndefinedLocal(*index))?;
                 match (base_val, idx_val) {
                     (Value::Aggregate(fields), Value::Int(i)) => {
@@ -337,7 +347,10 @@ impl Interpreter {
                             Err(InterpretError::TypeMismatch(format!("field {} out of bounds", idx)))
                         }
                     }
-                    Value::Ref(addr) => {
+                    Value::Ref(mut addr) => {
+                        while let Some(Value::Ref(next)) = self.heap.get(addr) {
+                            addr = *next;
+                        }
                         if let Some(target) = self.heap.get_mut(addr) {
                             if let Value::Aggregate(fields) = target {
                                 let idx = field.0 as usize;

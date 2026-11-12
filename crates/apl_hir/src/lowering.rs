@@ -286,7 +286,7 @@ impl HirLowering {
         }
         
         let body = if let ExprKind::Block(stmts, opt_expr) = &func.body.kind {
-            Some(self.lower_block(stmts, opt_expr.as_ref(), func.body.span))
+            Some(self.lower_block(stmts, opt_expr.as_ref(), func.body.span, true))
         } else {
             None
         };
@@ -305,7 +305,7 @@ impl HirLowering {
         })
     }
 
-    pub fn lower_block(&mut self, stmts: &[apl_ast::Stmt], opt_expr: Option<&Box<apl_ast::Expr>>, span: Span) -> HirBlock {
+    pub fn lower_block(&mut self, stmts: &[apl_ast::Stmt], opt_expr: Option<&Box<apl_ast::Expr>>, span: Span, is_func_body: bool) -> HirBlock {
         self.enter_scope();
         let mut hir_stmts = Vec::new();
         for stmt in stmts {
@@ -315,7 +315,11 @@ impl HirLowering {
         }
         if let Some(e) = opt_expr {
             let h_e = self.lower_expr(e);
-            hir_stmts.push(HirStmt::Return(Some(h_e), e.span));
+            if is_func_body && self.current_fn_return_type.as_ref().map(|t| *t != Type::Void).unwrap_or(false) {
+                hir_stmts.push(HirStmt::Return(Some(h_e), e.span));
+            } else {
+                hir_stmts.push(HirStmt::Expr(h_e));
+            }
         }
         self.leave_scope();
         HirBlock { stmts: hir_stmts, span }
@@ -390,7 +394,16 @@ impl HirLowering {
             }
             ExprKind::Unary(op, right) => {
                 let h_right = self.lower_expr(right);
-                let ty = h_right.ty.clone();
+                let ty = match op {
+                    apl_ast::UnaryOp::Ref => Type::Ref(Box::new(h_right.ty.clone())),
+                    apl_ast::UnaryOp::RefMut => Type::RefMut(Box::new(h_right.ty.clone())),
+                    apl_ast::UnaryOp::Deref => match &h_right.ty {
+                        Type::Ref(inner) | Type::RefMut(inner) => (**inner).clone(),
+                        _ => h_right.ty.clone(),
+                    },
+                    apl_ast::UnaryOp::Not => Type::Bool,
+                    _ => h_right.ty.clone(),
+                };
                 HirExpr {
                     kind: HirExprKind::UnaryOp(op.clone(), Box::new(h_right)),
                     ty,
@@ -619,7 +632,7 @@ impl HirLowering {
                 }
             }
             ExprKind::Block(stmts, opt_expr) => {
-                let h_block = self.lower_block(stmts, opt_expr.as_ref(), expr.span);
+                let h_block = self.lower_block(stmts, opt_expr.as_ref(), expr.span, false);
                 let mut ret_ty = Type::Void;
                 let mut h_opt = None;
                 if let Some(e) = opt_expr {
