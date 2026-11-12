@@ -45,6 +45,10 @@ impl Diagnostic {
                 format!("unexpected EOF while parsing {}", desc),
                 Span::dummy(),
             ),
+            ParseError::ManualLifetimeForbidden(lt, s) => (
+                format!("manual lifetime '{}' is forbidden in YKL", lt),
+                s,
+            ),
         };
         Self {
             severity: Severity::Error,

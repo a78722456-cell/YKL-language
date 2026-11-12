@@ -170,6 +170,7 @@ impl Backend {
             let span = match pe {
                 apl_parser::ParseError::UnexpectedToken(_, s, _) => *s,
                 apl_parser::ParseError::UnexpectedEOF(_) => apl_ast::Span::dummy(),
+                apl_parser::ParseError::ManualLifetimeForbidden(_, s) => *s,
             };
             diagnostics.push(Diagnostic {
                 range: Range {

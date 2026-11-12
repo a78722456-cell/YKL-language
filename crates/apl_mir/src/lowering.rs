@@ -11,6 +11,7 @@ pub struct MirBuilder {
     loop_scopes: Vec<(BasicBlockId, BasicBlockId)>,
     scopes: Vec<Vec<LocalId>>,
     pub struct_fields: HashMap<String, Vec<String>>,
+    pub func_params: HashMap<apl_hir::FunctionId, Vec<Type>>,
 }
 
 impl MirBuilder {
@@ -22,6 +23,7 @@ impl MirBuilder {
             loop_scopes: Vec::new(),
             scopes: Vec::new(),
             struct_fields: HashMap::new(),
+            func_params: HashMap::new(),
         };
         // start block
         builder.blocks.push(BasicBlock {
@@ -46,6 +48,11 @@ impl MirBuilder {
 
     pub fn with_struct_fields(mut self, struct_fields: HashMap<String, Vec<String>>) -> Self {
         self.struct_fields = struct_fields;
+        self
+    }
+
+    pub fn with_func_params(mut self, func_params: HashMap<apl_hir::FunctionId, Vec<Type>>) -> Self {
+        self.func_params = func_params;
         self
     }
 
@@ -164,7 +171,20 @@ impl MirBuilder {
             }
             HirExprKind::Call { callee, args } => {
                 let mut op_args = Vec::new();
-                for arg in args {
+                for (i, arg) in args.iter().enumerate() {
+                    let expected_param = self.func_params.get(callee).and_then(|params| params.get(i));
+                    if let Some(Type::Ref(_) | Type::RefMut(_)) = expected_param {
+                        if !matches!(arg.ty, Type::Ref(_) | Type::RefMut(_)) {
+                            let arg_place = self.lower_place(arg);
+                            let temp = self.make_temp(
+                                Rvalue::Ref(crate::Region(0), BorrowKind::Mut, arg_place),
+                                arg.span,
+                                Type::RefMut(Box::new(arg.ty.clone())),
+                            );
+                            op_args.push(Operand::Copy(temp));
+                            continue;
+                        }
+                    }
                     let arg_rv = self.lower_expr(arg);
                     let temp = self.make_temp(arg_rv, arg.span, arg.ty.clone());
                     op_args.push(Operand::Copy(temp));
@@ -184,13 +204,30 @@ impl MirBuilder {
             HirExprKind::MethodCall { receiver, method, args } => {
                 let mut op_args = Vec::with_capacity(args.len() + 1);
 
-                // 1. Receiver is first argument (self)
-                let rec_rv = self.lower_expr(receiver);
-                let rec_temp = self.make_temp(rec_rv, receiver.span, receiver.ty.clone());
+                // 1. Receiver is first argument (self) - Auto-borrow as reference!
+                let rec_place = self.lower_place(receiver);
+                let rec_temp = self.make_temp(
+                    Rvalue::Ref(crate::Region(0), BorrowKind::Mut, rec_place),
+                    receiver.span,
+                    Type::RefMut(Box::new(receiver.ty.clone())),
+                );
                 op_args.push(Operand::Copy(rec_temp));
 
-                // 2. Remaining arguments
-                for arg in args {
+                // 2. Remaining arguments - Auto-borrowing!
+                for (i, arg) in args.iter().enumerate() {
+                    let expected_param = self.func_params.get(method).and_then(|params| params.get(i + 1));
+                    if let Some(Type::Ref(_) | Type::RefMut(_)) = expected_param {
+                        if !matches!(arg.ty, Type::Ref(_) | Type::RefMut(_)) {
+                            let arg_place = self.lower_place(arg);
+                            let temp = self.make_temp(
+                                Rvalue::Ref(crate::Region(0), BorrowKind::Mut, arg_place),
+                                arg.span,
+                                Type::RefMut(Box::new(arg.ty.clone())),
+                            );
+                            op_args.push(Operand::Copy(temp));
+                            continue;
+                        }
+                    }
                     let arg_rv = self.lower_expr(arg);
                     let temp = self.make_temp(arg_rv, arg.span, arg.ty.clone());
                     op_args.push(Operand::Copy(temp));

@@ -75,6 +75,7 @@ pub enum TokenKind {
     Arrow,      // ->
     FatArrow,   // =>
     ColonColon, // ::
+    ColonAssign, // :=
     Colon,
     Semicolon,
     Comma,
@@ -88,6 +89,7 @@ pub enum TokenKind {
     LBrace,
     RBrace,
     At, // @ for custom allocators or decorators
+    Lifetime(String), // 'a, 'static
 
     EOF,
 }
@@ -286,6 +288,9 @@ impl<'a> Lexer<'a> {
                 if self.peek() == Some(':') {
                     self.advance();
                     TokenKind::ColonColon
+                } else if self.peek() == Some('=') {
+                    self.advance();
+                    TokenKind::ColonAssign
                 } else {
                     TokenKind::Colon
                 }
@@ -341,33 +346,63 @@ impl<'a> Lexer<'a> {
                 TokenKind::Literal(Literal::String(s))
             }
             '\'' => {
-                let ch = match self.advance() {
-                    Some('\\') => match self.advance() {
-                        Some('n') => '\n',
-                        Some('t') => '\t',
-                        Some('r') => '\r',
-                        Some('\\') => '\\',
-                        Some('\'') => '\'',
-                        Some(other) => other,
-                        None => {
+                let mut temp = self.chars.clone();
+                match temp.next() {
+                    Some('\\') => {
+                        self.advance(); // consume '\\'
+                        let esc_ch = match self.advance() {
+                            Some('n') => '\n',
+                            Some('t') => '\t',
+                            Some('r') => '\r',
+                            Some('\\') => '\\',
+                            Some('\'') => '\'',
+                            Some(other) => other,
+                            None => {
+                                return Err(LexError::UnterminatedChar(span(
+                                    self.pos, self.line, self.col,
+                                )));
+                            }
+                        };
+                        if self.advance() != Some('\'') {
                             return Err(LexError::UnterminatedChar(span(
                                 self.pos, self.line, self.col,
                             )));
                         }
-                    },
-                    Some(ch) => ch,
+                        TokenKind::Literal(Literal::Char(esc_ch))
+                    }
+                    Some(first_ch) if first_ch.is_alphabetic() || first_ch == '_' => {
+                        if temp.next() == Some('\'') {
+                            self.advance(); // consume first_ch
+                            self.advance(); // consume '\''
+                            TokenKind::Literal(Literal::Char(first_ch))
+                        } else {
+                            let mut lt = String::new();
+                            while let Some(ch) = self.peek() {
+                                if ch.is_alphanumeric() || ch == '_' {
+                                    lt.push(ch);
+                                    self.advance();
+                                } else {
+                                    break;
+                                }
+                            }
+                            TokenKind::Lifetime(lt)
+                        }
+                    }
+                    Some(other_ch) => {
+                        self.advance(); // consume other_ch
+                        if self.advance() != Some('\'') {
+                            return Err(LexError::UnterminatedChar(span(
+                                self.pos, self.line, self.col,
+                            )));
+                        }
+                        TokenKind::Literal(Literal::Char(other_ch))
+                    }
                     None => {
                         return Err(LexError::UnterminatedChar(span(
                             self.pos, self.line, self.col,
                         )));
                     }
-                };
-                if self.advance() != Some('\'') {
-                    return Err(LexError::UnterminatedChar(span(
-                        self.pos, self.line, self.col,
-                    )));
                 }
-                TokenKind::Literal(Literal::Char(ch))
             }
             '0'..='9' => {
                 let mut num_str = c.to_string();

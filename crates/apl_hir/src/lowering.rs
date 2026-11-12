@@ -72,6 +72,24 @@ impl HirLowering {
             other => other.clone(),
         }
     }
+    fn is_compatible(expected: &Type, actual: &Type) -> bool {
+        if expected == actual {
+            return true;
+        }
+        match (expected, actual) {
+            (Type::I64, Type::I32) | (Type::I32, Type::I64) => true,
+            (Type::U8, Type::I32) | (Type::I32, Type::U8) => true,
+            (Type::F64, Type::F32) | (Type::F32, Type::F64) => true,
+            (Type::Ref(inner), actual) | (Type::RefMut(inner), actual) => {
+                Self::is_compatible(inner, actual)
+            }
+            (expected, Type::Ref(inner)) | (expected, Type::RefMut(inner)) => {
+                Self::is_compatible(expected, inner)
+            }
+            _ => false,
+        }
+    }
+
     pub fn new() -> Self {
         let mut func_map = HashMap::new();
         func_map.insert("print".to_string(), FunctionId(99000));
@@ -167,6 +185,15 @@ impl HirLowering {
                     let id = StructId(self.next_struct_id);
                     self.next_struct_id += 1;
                     self.struct_map.insert(st.name.clone(), id);
+                    for mut method in st.methods.clone() {
+                        method.name = format!("{}_{}", st.name, method.name);
+                        for param in &mut method.params {
+                            param.ty = Self::resolve_self_type(&param.ty, &st.name);
+                        }
+                        method.return_type = Self::resolve_self_type(&method.return_type, &st.name);
+                        self.functions.insert(method.name.clone(), method.clone());
+                        self.define_func(method.name.clone());
+                    }
                 }
                 Item::Enum(en) => {
                     self.enums.insert(en.name.clone(), en.clone());
@@ -203,6 +230,18 @@ impl HirLowering {
             if let Item::Function(func) = item {
                 if let Some(hf) = self.lower_function(func) {
                     hir_funcs.push(hf);
+                }
+            }
+            if let Item::Struct(st) = item {
+                for mut method in st.methods.clone() {
+                    method.name = format!("{}_{}", st.name, method.name);
+                    for param in &mut method.params {
+                        param.ty = Self::resolve_self_type(&param.ty, &st.name);
+                    }
+                    method.return_type = Self::resolve_self_type(&method.return_type, &st.name);
+                    if let Some(hf) = self.lower_function(&method) {
+                        hir_funcs.push(hf);
+                    }
                 }
             }
             if let Item::Impl(imp) = item {
@@ -418,7 +457,7 @@ impl HirLowering {
             ExprKind::Assign(place, rvalue) => {
                 let h_place = self.lower_expr(place);
                 let h_rvalue = self.lower_expr(rvalue);
-                if h_place.ty != h_rvalue.ty {
+                if !Self::is_compatible(&h_place.ty, &h_rvalue.ty) {
                     self.errors.push(HirError::TypeMismatch(h_place.ty.clone(), h_rvalue.ty.clone(), expr.span));
                 }
                 HirExpr {

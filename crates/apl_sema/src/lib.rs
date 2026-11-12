@@ -4,23 +4,23 @@ use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum SemaError {
-    #[error("Undefined symbol '{0}' at {1:?}")]
+    #[error("❌ Ошибка: Символ '{0}' не найден на {1:?}\n💡 Подсказка: Проверьте имя переменной/функции или объявите новую через `{0} := ...`.")]
     UndefinedSymbol(String, Span),
-    #[error("Type mismatch: expected '{0:?}', got '{1:?}' at {2:?}")]
+    #[error("❌ Ошибка типов: ожидался '{0:?}', но получен '{1:?}' на {2:?}\n💡 Подсказка: Проверьте типы передаваемых аргументов или возвращаемого значения.")]
     TypeMismatch(Type, Type, Span),
-    #[error("Use of moved value '{0}' at {1:?}")]
+    #[error("❌ Ошибка памяти: Использование перемещённого значения '{0}' на {1:?}\n💡 Подсказка: Чтобы продолжить использовать '{0}', передавайте его по ссылке (&).")]
     UseAfterMove(String, Span),
-    #[error("Cannot borrow '{0}' mutably because it is already borrowed at {1:?}")]
+    #[error("❌ Ошибка заимствования: Конфликт заимствования '{0}' на {1:?}\n💡 Подсказка: Завершите чтение по старой ссылке перед изменением объекта.")]
     BorrowConflict(String, Span),
-    #[error("Cannot assign to immutable variable '{0}' at {1:?}")]
+    #[error("❌ Ошибка: Нельзя изменить неизменяемую переменную '{0}' на {1:?}\n💡 Подсказка: Объявите `{0} := ...` или `let mut {0} = ...`, чтобы её можно было изменять.")]
     ImmutableAssignment(String, Span),
-    #[error("Duplicate symbol definition '{0}' at {1:?}")]
+    #[error("❌ Ошибка: Повторное определение символа '{0}' на {1:?}")]
     DuplicateSymbol(String, Span),
-    #[error("Missing field '{1}' in struct '{0}' at {2:?}")]
+    #[error("❌ Ошибка: В структуре '{0}' пропущено обязательное поле '{1}' на {2:?}")]
     MissingField(String, String, Span),
-    #[error("Unknown field '{1}' in struct '{0}' at {2:?}")]
+    #[error("❌ Ошибка: Неизвестное поле '{1}' в структуре '{0}' на {2:?}\n💡 Подсказка: Проверьте объявление полей в struct {0}.")]
     UnknownField(String, String, Span),
-    #[error("Break or continue outside of loop at {0:?}")]
+    #[error("❌ Ошибка: break или continue вне цикла на {0:?}")]
     BreakOutsideLoop(Span),
 }
 
@@ -331,6 +331,14 @@ impl SemanticAnalyzer {
                 }
                 Item::Struct(st) => {
                     self.structs.insert(st.name.clone(), st.clone());
+                    for mut method in st.methods.clone() {
+                        method.name = format!("{}_{}", st.name, method.name);
+                        for param in &mut method.params {
+                            param.ty = Self::resolve_self_type(&param.ty, &st.name);
+                        }
+                        method.return_type = Self::resolve_self_type(&method.return_type, &st.name);
+                        self.functions.insert(method.name.clone(), method);
+                    }
                 }
                 Item::Enum(en) => {
                     self.enums.insert(en.name.clone(), en.clone());
@@ -360,6 +368,16 @@ impl SemanticAnalyzer {
             }
             if let Item::Function(func) = item {
                 self.analyze_function(func);
+            }
+            if let Item::Struct(st) = item {
+                for mut method in st.methods.clone() {
+                    method.name = format!("{}_{}", st.name, method.name);
+                    for param in &mut method.params {
+                        param.ty = Self::resolve_self_type(&param.ty, &st.name);
+                    }
+                    method.return_type = Self::resolve_self_type(&method.return_type, &st.name);
+                    self.analyze_function(&method);
+                }
             }
             if let Item::Impl(imp) = item {
                 for mut method in imp.methods.clone() {

@@ -393,6 +393,9 @@ fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dum
                 }
                 apl_ast::Item::Struct(st) => {
                     st.name = format!("{}::{}", current_package, st.name);
+                    for method in &mut st.methods {
+                        method.name = format!("{}::{}", current_package, method.name);
+                    }
                 }
                 apl_ast::Item::Enum(en) => {
                     en.name = format!("{}::{}", current_package, en.name);
@@ -456,11 +459,18 @@ fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dum
         }
     }
 
+    let mut func_param_types = HashMap::new();
+    for f in &hir_prog.functions {
+        func_param_types.insert(f.id, f.params.iter().map(|p| p.ty.clone()).collect());
+    }
+
     let mut codegen_funcs = Vec::new();
     for func in &hir_prog.functions {
         if func.is_extern { continue; }
 
-        let builder = apl_mir::lowering::MirBuilder::new().with_struct_fields(struct_fields.clone());
+        let builder = apl_mir::lowering::MirBuilder::new()
+            .with_struct_fields(struct_fields.clone())
+            .with_func_params(func_param_types.clone());
         let mir_body = builder.build(func);
 
         if let Err(e) = mir_body.validate() {
@@ -501,7 +511,10 @@ fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dum
             }
         }
         if !borrow_errors.is_empty() {
-            anyhow::bail!("Borrow checker errors found: {:?}", borrow_errors);
+            for err in &borrow_errors {
+                eprintln!("{}", err);
+            }
+            anyhow::bail!("Borrow checker errors found: {}", borrow_errors.len());
         }
 
         codegen_funcs.push(CodegenFunction {

@@ -7,13 +7,51 @@ use apl_ast::Span;
 use std::collections::HashSet;
 use points_to::PointsToAnalysis;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BorrowckError {
     UseOfUninitializedVariable { span: Span },
     UseAfterMove { span: Span },
     MutableBorrowConflict { span: Span },
     ImmutableBorrowConflict { span: Span },
     MutationWhileBorrowed { span: Span },
+    ReturnLocalReference { span: Span },
+}
+
+impl std::fmt::Display for BorrowckError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BorrowckError::UseOfUninitializedVariable { span } => write!(
+                f,
+                "❌ Ошибка памяти [Uninitialized] на {:?}: Использование неинициализированной переменной.\n💡 Подсказка: Присвойте переменной начальное значение перед её использованием.",
+                span
+            ),
+            BorrowckError::UseAfterMove { span } => write!(
+                f,
+                "❌ Ошибка памяти [UseAfterMove] на {:?}: Переменная используется после передачи владения (Move).\n💡 Подсказка: Чтобы продолжить пользоваться объектом после вызова функции, передавайте его по ссылке (&).",
+                span
+            ),
+            BorrowckError::MutableBorrowConflict { span } => write!(
+                f,
+                "❌ Ошибка заимствования [BorrowConflict] на {:?}: Конфликт изменяемой (`&mut`) и неизменяемой (`&`) ссылки.\n💡 Подсказка: Завершите чтение по старой ссылке перед изменением объекта.",
+                span
+            ),
+            BorrowckError::ImmutableBorrowConflict { span } => write!(
+                f,
+                "❌ Ошибка заимствования [BorrowConflict] на {:?}: Нельзя создать неизменяемую ссылку, пока объект уже заимствован изменяемо (`&mut`).\n💡 Подсказка: Закончите операцию записи перед чтением.",
+                span
+            ),
+            BorrowckError::MutationWhileBorrowed { span } => write!(
+                f,
+                "❌ Ошибка безопасности [MutationWhileBorrowed] на {:?}: Попытка изменить переменную, пока на неё существует активная ссылка.\n💡 Подсказка: Дождитесь завершения работы со ссылкой перед прямой модификацией объекта.",
+                span
+            ),
+            BorrowckError::ReturnLocalReference { span } => write!(
+                f,
+                "❌ Ошибка безопасности [ReturnLocalReference] на {:?}: Нельзя возвращать ссылку на временный локальный объект стека!\n💡 Подсказка: Верните само значение целиком (по значению), а не ссылку на локальную переменную функции.",
+                span
+            ),
+        }
+    }
 }
 
 pub fn check_body(body: &MirBody) -> Vec<BorrowckError> {

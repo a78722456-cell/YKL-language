@@ -4,10 +4,12 @@ use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum ParseError {
-    #[error("Unexpected token {0:?} at {1:?}, expected {2}")]
+    #[error("❌ Синтаксическая ошибка: неожиданный токен {0:?} на {1:?}, ожидалось {2}\n💡 Подсказка: Проверьте закрывающие скобки или разделители выражений.")]
     UnexpectedToken(TokenKind, Span, &'static str),
-    #[error("Unexpected EOF while parsing {0}")]
+    #[error("❌ Неожиданный конец файла при разборе {0}")]
     UnexpectedEOF(&'static str),
+    #[error("❌ Ручной лайфтайм '{0}' запрещён в YKL!\n💡 Подсказка: Уберите '{0}' — компилятор YKL автоматически рассчитывает времена жизни без ручных аннотаций.")]
+    ManualLifetimeForbidden(String, Span),
 }
 
 pub struct Parser {
@@ -222,6 +224,9 @@ impl Parser {
         let mut generics = Vec::new();
         if self.match_token(&TokenKind::Lt) {
             while self.current().kind != TokenKind::Gt && self.current().kind != TokenKind::EOF {
+                if let TokenKind::Lifetime(lt) = &self.current().kind {
+                    return Err(ParseError::ManualLifetimeForbidden(lt.clone(), self.current().span));
+                }
                 if let TokenKind::Ident(name) = self.advance().kind.clone() {
                     generics.push(name);
                 }
@@ -235,7 +240,13 @@ impl Parser {
     }
 
     fn parse_type(&mut self) -> Result<Type, ParseError> {
+        if let TokenKind::Lifetime(lt) = &self.current().kind {
+            return Err(ParseError::ManualLifetimeForbidden(lt.clone(), self.current().span));
+        }
         if self.match_token(&TokenKind::Ampersand) {
+            if let TokenKind::Lifetime(lt) = &self.current().kind {
+                return Err(ParseError::ManualLifetimeForbidden(lt.clone(), self.current().span));
+            }
             if self.match_token(&TokenKind::Mut) {
                 let inner = self.parse_type()?;
                 return Ok(Type::RefMut(Box::new(inner)));
@@ -275,6 +286,13 @@ impl Parser {
         let tok = self.advance().clone();
         match tok.kind {
             TokenKind::Ident(name) => match name.as_str() {
+                // Интуитивные базовые типы (Идея 5):
+                "int" => Ok(Type::I32),
+                "byte" => Ok(Type::U8),
+                "float" => Ok(Type::F64),
+                "string" | "String" | "str" => Ok(Type::String),
+                "bool" => Ok(Type::Bool),
+                // Точные системные типы:
                 "i8" => Ok(Type::I8),
                 "i16" => Ok(Type::I16),
                 "i32" => Ok(Type::I32),
@@ -287,9 +305,7 @@ impl Parser {
                 "usize" => Ok(Type::USize),
                 "f32" => Ok(Type::F32),
                 "f64" => Ok(Type::F64),
-                "bool" => Ok(Type::Bool),
                 "char" => Ok(Type::Char),
-                "string" => Ok(Type::String),
                 "Ptr" => Ok(Type::Ptr),
                 "void" => Ok(Type::Void),
                 _ => {
@@ -432,15 +448,36 @@ impl Parser {
         self.expect(&TokenKind::LBrace, "{")?;
 
         let mut fields = Vec::new();
+        let mut methods = Vec::new();
         while self.current().kind != TokenKind::RBrace && self.current().kind != TokenKind::EOF {
-            let f_pub = self.match_token(&TokenKind::Pub);
+            let member_pub = self.match_token(&TokenKind::Pub);
+
+            // Идея 1: Если внутри struct встретили `fn`, парсим метод прямо внутри структуры!
+            if self.current().kind == TokenKind::Fn {
+                let mut func = self.parse_function(member_pub)?;
+                let has_self = func.params.first().map(|p| p.name == "self").unwrap_or(false);
+                if !has_self {
+                    func.params.insert(
+                        0,
+                        Param {
+                            name: "self".to_string(),
+                            ty: Type::RefMut(Box::new(Type::Named(name.clone(), vec![]))),
+                            span: func.span,
+                        },
+                    );
+                }
+                methods.push(func);
+                let _ = self.match_token(&TokenKind::Semicolon);
+                continue;
+            }
+
             let f_name = match self.advance().kind.clone() {
                 TokenKind::Ident(n) => n,
                 _ => {
                     return Err(ParseError::UnexpectedToken(
                         self.current().kind.clone(),
                         self.current().span,
-                        "field name",
+                        "field name or method",
                     ));
                 }
             };
@@ -449,11 +486,10 @@ impl Parser {
             fields.push(StructField {
                 name: f_name,
                 ty,
-                is_pub: f_pub,
+                is_pub: member_pub,
             });
-            if !self.match_token(&TokenKind::Comma) {
-                break;
-            }
+            let _ = self.match_token(&TokenKind::Comma);
+            let _ = self.match_token(&TokenKind::Semicolon);
         }
         self.expect(&TokenKind::RBrace, "}")?;
 
@@ -461,6 +497,7 @@ impl Parser {
             name,
             generics,
             fields,
+            methods,
             is_pub,
             span: start_span,
         })
@@ -634,6 +671,29 @@ impl Parser {
                     init,
                     span: start_span,
                 });
+            } else if let TokenKind::Ident(var_name) = self.current().kind.clone() {
+                if self.peek(1).kind == TokenKind::ColonAssign {
+                    self.advance(); // consume identifier
+                    self.advance(); // consume :=
+                    let init = self.parse_expr()?;
+                    self.match_token(&TokenKind::Semicolon);
+                    stmts.push(Stmt::Let {
+                        name: var_name,
+                        mutability: true,
+                        ty: None,
+                        init,
+                        span: start_span,
+                    });
+                } else {
+                    let expr = self.parse_expr()?;
+                    if self.match_token(&TokenKind::Semicolon) {
+                        stmts.push(Stmt::Expr(expr));
+                    } else if self.check(&TokenKind::RBrace) {
+                        trailing_expr = Some(Box::new(expr));
+                    } else {
+                        stmts.push(Stmt::Expr(expr));
+                    }
+                }
             } else {
                 let expr = self.parse_expr()?;
                 if self.match_token(&TokenKind::Semicolon) {

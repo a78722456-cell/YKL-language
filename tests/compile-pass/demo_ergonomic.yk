@@ -1,0 +1,39 @@
+struct Telemetry {
+    ticks: int
+    last_speed: int
+}
+
+struct Robot {
+    speed: int
+    battery: byte
+
+    // Метод прямо внутри struct!
+    // Параметр self подставляется автоматически, никаких `;`
+    fn charge() {
+        self.battery = 100
+        println("Робот заряжен на 100%")
+    }
+
+    // Принимает ссылку &mut Telemetry, но при вызове писать `&mut` не нужно!
+    fn drive(&mut self, telemetry: &mut Telemetry, boost: int) -> int {
+        self.speed = self.speed + boost
+        telemetry.ticks = telemetry.ticks + 1
+        telemetry.last_speed = self.speed
+        return self.speed
+    }
+}
+
+fn main() -> int {
+    // Короткое объявление `:=` без `let mut` и без `;`
+    robot := Robot { speed: 10, battery: 45 }
+    telemetry := Telemetry { ticks: 0, last_speed: 0 }
+
+    robot.charge()
+
+    // Auto-borrowing: передаём telemetry без `&mut`!
+    current_speed := robot.drive(telemetry, 25)
+
+    print("Текущая скорость робота: ")
+    println(current_speed)
+    return 0
+}

@@ -240,6 +240,7 @@ pub struct StructDecl {
     pub name: String,
     pub generics: Vec<String>,
     pub fields: Vec<StructField>,
+    pub methods: Vec<Function>,
     pub is_pub: bool,
     pub span: Span,
 }
