@@ -748,14 +748,59 @@ impl Parser {
     }
 
     fn parse_logical_and(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_equality()?;
+        let mut left = self.parse_bitwise_or()?;
         while self.match_token(&TokenKind::And) {
-            let right = self.parse_equality()?;
+            let right = self.parse_bitwise_or()?;
             let span = Span::new(left.span.file_id, left.span.start, right.span.end,
                 left.span.line,
                 right.span.col,);
             left = Expr {
                 kind: ExprKind::Binary(BinaryOp::And, Box::new(left), Box::new(right)),
+                span,
+            };
+        }
+        Ok(left)
+    }
+
+    fn parse_bitwise_or(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_bitwise_xor()?;
+        while self.match_token(&TokenKind::Pipe) {
+            let right = self.parse_bitwise_xor()?;
+            let span = Span::new(left.span.file_id, left.span.start, right.span.end,
+                left.span.line,
+                right.span.col,);
+            left = Expr {
+                kind: ExprKind::Binary(BinaryOp::BitOr, Box::new(left), Box::new(right)),
+                span,
+            };
+        }
+        Ok(left)
+    }
+
+    fn parse_bitwise_xor(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_bitwise_and()?;
+        while self.match_token(&TokenKind::Caret) {
+            let right = self.parse_bitwise_and()?;
+            let span = Span::new(left.span.file_id, left.span.start, right.span.end,
+                left.span.line,
+                right.span.col,);
+            left = Expr {
+                kind: ExprKind::Binary(BinaryOp::BitXor, Box::new(left), Box::new(right)),
+                span,
+            };
+        }
+        Ok(left)
+    }
+
+    fn parse_bitwise_and(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_equality()?;
+        while self.match_token(&TokenKind::Ampersand) {
+            let right = self.parse_equality()?;
+            let span = Span::new(left.span.file_id, left.span.start, right.span.end,
+                left.span.line,
+                right.span.col,);
+            left = Expr {
+                kind: ExprKind::Binary(BinaryOp::BitAnd, Box::new(left), Box::new(right)),
                 span,
             };
         }
@@ -788,7 +833,7 @@ impl Parser {
     }
 
     fn parse_comparison(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_term()?;
+        let mut left = self.parse_shift()?;
         while let Some(op) = match self.current().kind {
             TokenKind::Lt => {
                 self.advance();
@@ -805,6 +850,31 @@ impl Parser {
             TokenKind::Gte => {
                 self.advance();
                 Some(BinaryOp::Gte)
+            }
+            _ => None,
+        } {
+            let right = self.parse_shift()?;
+            let span = Span::new(left.span.file_id, left.span.start, right.span.end,
+                left.span.line,
+                right.span.col,);
+            left = Expr {
+                kind: ExprKind::Binary(op, Box::new(left), Box::new(right)),
+                span,
+            };
+        }
+        Ok(left)
+    }
+
+    fn parse_shift(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_term()?;
+        while let Some(op) = match self.current().kind {
+            TokenKind::Shl => {
+                self.advance();
+                Some(BinaryOp::Shl)
+            }
+            TokenKind::Shr => {
+                self.advance();
+                Some(BinaryOp::Shr)
             }
             _ => None,
         } {

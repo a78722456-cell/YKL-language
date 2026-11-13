@@ -95,6 +95,14 @@ impl HirLowering {
         func_map.insert("print".to_string(), FunctionId(99000));
         func_map.insert("println".to_string(), FunctionId(99001));
         func_map.insert("eprint".to_string(), FunctionId(99002));
+        func_map.insert("mmio_write".to_string(), FunctionId(99010));
+        func_map.insert("mmio_read".to_string(), FunctionId(99011));
+        func_map.insert("bit_set".to_string(), FunctionId(99012));
+        func_map.insert("bit_clear".to_string(), FunctionId(99013));
+        func_map.insert("mmio_write".to_string(), FunctionId(99010));
+        func_map.insert("mmio_read".to_string(), FunctionId(99011));
+        func_map.insert("bit_set".to_string(), FunctionId(99012));
+        func_map.insert("bit_clear".to_string(), FunctionId(99013));
 
         Self {
             errors: Vec::new(),
@@ -383,7 +391,16 @@ impl HirLowering {
                 let h_left = self.lower_expr(left);
                 let h_right = self.lower_expr(right);
                 let ty = match op {
-                    apl_ast::BinaryOp::Add | apl_ast::BinaryOp::Sub | apl_ast::BinaryOp::Mul | apl_ast::BinaryOp::Div | apl_ast::BinaryOp::Mod => h_left.ty.clone(),
+                    apl_ast::BinaryOp::Add
+                    | apl_ast::BinaryOp::Sub
+                    | apl_ast::BinaryOp::Mul
+                    | apl_ast::BinaryOp::Div
+                    | apl_ast::BinaryOp::Mod
+                    | apl_ast::BinaryOp::BitAnd
+                    | apl_ast::BinaryOp::BitOr
+                    | apl_ast::BinaryOp::BitXor
+                    | apl_ast::BinaryOp::Shl
+                    | apl_ast::BinaryOp::Shr => h_left.ty.clone(),
                     _ => Type::Bool,
                 };
                 HirExpr {
@@ -429,6 +446,56 @@ impl HirLowering {
                                 args: hir_args,
                             },
                             ty: Type::Void,
+                            span: expr.span,
+                        };
+                    }
+                    if name == "mmio_write" || name == "bit_set" || name == "bit_clear" {
+                        let callee_id = match name.as_str() {
+                            "mmio_write" => FunctionId(99010),
+                            "bit_set" => FunctionId(99012),
+                            _ => FunctionId(99013),
+                        };
+                        return HirExpr {
+                            kind: HirExprKind::Call {
+                                callee: callee_id,
+                                args: hir_args,
+                            },
+                            ty: Type::Void,
+                            span: expr.span,
+                        };
+                    }
+                    if name == "mmio_read" {
+                        return HirExpr {
+                            kind: HirExprKind::Call {
+                                callee: FunctionId(99011),
+                                args: hir_args,
+                            },
+                            ty: Type::I32,
+                            span: expr.span,
+                        };
+                    }
+                    if name == "mmio_write" || name == "bit_set" || name == "bit_clear" {
+                        let callee_id = match name.as_str() {
+                            "mmio_write" => FunctionId(99010),
+                            "bit_set" => FunctionId(99012),
+                            _ => FunctionId(99013),
+                        };
+                        return HirExpr {
+                            kind: HirExprKind::Call {
+                                callee: callee_id,
+                                args: hir_args,
+                            },
+                            ty: Type::Void,
+                            span: expr.span,
+                        };
+                    }
+                    if name == "mmio_read" {
+                        return HirExpr {
+                            kind: HirExprKind::Call {
+                                callee: FunctionId(99011),
+                                args: hir_args,
+                            },
+                            ty: Type::I32,
                             span: expr.span,
                         };
                     }
@@ -653,6 +720,37 @@ impl HirLowering {
                 HirExpr {
                     kind: HirExprKind::Block(h_block, ret_expr),
                     ty: ret_ty,
+                    span: expr.span,
+                }
+            }
+            ExprKind::Index(base, index) => {
+                let h_base = self.lower_expr(base);
+                let h_index = self.lower_expr(index);
+                let elem_ty = match &h_base.ty {
+                    Type::Array(elem, _) => (**elem).clone(),
+                    Type::Ref(inner) | Type::RefMut(inner) => match &**inner {
+                        Type::Array(elem, _) => (**elem).clone(),
+                        _ => Type::I32,
+                    },
+                    _ => Type::I32,
+                };
+                HirExpr {
+                    kind: HirExprKind::Index(Box::new(h_base), Box::new(h_index)),
+                    ty: elem_ty,
+                    span: expr.span,
+                }
+            }
+            ExprKind::ArrayInit(items) => {
+                let h_items: Vec<HirExpr> = items.iter().map(|item| self.lower_expr(item)).collect();
+                let elem_ty = if let Some(first) = h_items.first() {
+                    first.ty.clone()
+                } else {
+                    Type::I32
+                };
+                let len = h_items.len();
+                HirExpr {
+                    kind: HirExprKind::ArrayInit(h_items),
+                    ty: Type::Array(Box::new(elem_ty), len),
                     span: expr.span,
                 }
             }

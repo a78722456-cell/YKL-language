@@ -89,6 +89,8 @@ pub enum TokenKind {
     LBrace,
     RBrace,
     At, // @ for custom allocators or decorators
+    Shl, // <<
+    Shr, // >>
     Lifetime(String), // 'a, 'static
 
     EOF,
@@ -254,6 +256,9 @@ impl<'a> Lexer<'a> {
                 if self.peek() == Some('=') {
                     self.advance();
                     TokenKind::Lte
+                } else if self.peek() == Some('<') {
+                    self.advance();
+                    TokenKind::Shl
                 } else {
                     TokenKind::Lt
                 }
@@ -262,6 +267,9 @@ impl<'a> Lexer<'a> {
                 if self.peek() == Some('=') {
                     self.advance();
                     TokenKind::Gte
+                } else if self.peek() == Some('>') {
+                    self.advance();
+                    TokenKind::Shr
                 } else {
                     TokenKind::Gt
                 }
@@ -405,51 +413,108 @@ impl<'a> Lexer<'a> {
                 }
             }
             '0'..='9' => {
-                let mut num_str = c.to_string();
-                let mut is_float = false;
-                while let Some(ch) = self.peek() {
-                    if ch.is_ascii_digit() || ch == '_' {
-                        if ch != '_' {
-                            num_str.push(ch);
+                let mut num_str = String::new();
+                if c == '0' && (self.peek() == Some('x') || self.peek() == Some('X')) {
+                    self.advance(); // consume 'x' / 'X'
+                    while let Some(ch) = self.peek() {
+                        if ch.is_ascii_hexdigit() || ch == '_' {
+                            if ch != '_' {
+                                num_str.push(ch);
+                            }
+                            self.advance();
+                        } else {
+                            break;
                         }
-                        self.advance();
-                    } else if ch == '.' {
-                        // Check if next character after . is a digit (not method call or range ..)
-                        let mut temp = self.chars.clone();
-                        temp.next(); // consume .
-                        if let Some(next_ch) = temp.next() {
-                            if next_ch.is_ascii_digit() && !is_float {
-                                is_float = true;
-                                num_str.push('.');
-                                self.advance();
+                    }
+                    if num_str.is_empty() {
+                        return Err(LexError::InvalidNumber(
+                            "0x".to_string(),
+                            span(self.pos, self.line, self.col),
+                        ));
+                    }
+                    match i64::from_str_radix(&num_str, 16) {
+                        Ok(i) => TokenKind::Literal(Literal::Int(i)),
+                        Err(_) => {
+                            return Err(LexError::InvalidNumber(
+                                format!("0x{}", num_str),
+                                span(self.pos, self.line, self.col),
+                            ));
+                        }
+                    }
+                } else if c == '0' && (self.peek() == Some('b') || self.peek() == Some('B')) {
+                    self.advance(); // consume 'b' / 'B'
+                    while let Some(ch) = self.peek() {
+                        if ch == '0' || ch == '1' || ch == '_' {
+                            if ch != '_' {
+                                num_str.push(ch);
+                            }
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                    if num_str.is_empty() {
+                        return Err(LexError::InvalidNumber(
+                            "0b".to_string(),
+                            span(self.pos, self.line, self.col),
+                        ));
+                    }
+                    match i64::from_str_radix(&num_str, 2) {
+                        Ok(i) => TokenKind::Literal(Literal::Int(i)),
+                        Err(_) => {
+                            return Err(LexError::InvalidNumber(
+                                format!("0b{}", num_str),
+                                span(self.pos, self.line, self.col),
+                            ));
+                        }
+                    }
+                } else {
+                    num_str.push(c);
+                    let mut is_float = false;
+                    while let Some(ch) = self.peek() {
+                        if ch.is_ascii_digit() || ch == '_' {
+                            if ch != '_' {
+                                num_str.push(ch);
+                            }
+                            self.advance();
+                        } else if ch == '.' {
+                            // Check if next character after . is a digit (not method call or range ..)
+                            let mut temp = self.chars.clone();
+                            temp.next(); // consume .
+                            if let Some(next_ch) = temp.next() {
+                                if next_ch.is_ascii_digit() && !is_float {
+                                    is_float = true;
+                                    num_str.push('.');
+                                    self.advance();
+                                } else {
+                                    break;
+                                }
                             } else {
                                 break;
                             }
                         } else {
                             break;
                         }
-                    } else {
-                        break;
                     }
-                }
-                if is_float {
-                    match num_str.parse::<f64>() {
-                        Ok(f) => TokenKind::Literal(Literal::Float(f)),
-                        Err(_) => {
-                            return Err(LexError::InvalidNumber(
-                                num_str,
-                                span(self.pos, self.line, self.col),
-                            ));
+                    if is_float {
+                        match num_str.parse::<f64>() {
+                            Ok(f) => TokenKind::Literal(Literal::Float(f)),
+                            Err(_) => {
+                                return Err(LexError::InvalidNumber(
+                                    num_str,
+                                    span(self.pos, self.line, self.col),
+                                ));
+                            }
                         }
-                    }
-                } else {
-                    match num_str.parse::<i64>() {
-                        Ok(i) => TokenKind::Literal(Literal::Int(i)),
-                        Err(_) => {
-                            return Err(LexError::InvalidNumber(
-                                num_str,
-                                span(self.pos, self.line, self.col),
-                            ));
+                    } else {
+                        match num_str.parse::<i64>() {
+                            Ok(i) => TokenKind::Literal(Literal::Int(i)),
+                            Err(_) => {
+                                return Err(LexError::InvalidNumber(
+                                    num_str,
+                                    span(self.pos, self.line, self.col),
+                                ));
+                            }
                         }
                     }
                 }
@@ -554,5 +619,19 @@ mod tests {
         assert_eq!(tokens[0].kind, TokenKind::Fn);
         assert_eq!(tokens[1].kind, TokenKind::Ident("factorial".to_string()));
         assert_eq!(tokens[2].kind, TokenKind::LParen);
+    }
+
+    #[test]
+    fn test_lexer_industrial_hex_bin_shifts() {
+        let input = "0x4002_3830 0b1010_0001 << >> & | ^";
+        let mut lexer = Lexer::new(input, 0);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::Literal(Literal::Int(0x40023830)));
+        assert_eq!(tokens[1].kind, TokenKind::Literal(Literal::Int(0b10100001)));
+        assert_eq!(tokens[2].kind, TokenKind::Shl);
+        assert_eq!(tokens[3].kind, TokenKind::Shr);
+        assert_eq!(tokens[4].kind, TokenKind::Ampersand);
+        assert_eq!(tokens[5].kind, TokenKind::Pipe);
+        assert_eq!(tokens[6].kind, TokenKind::Caret);
     }
 }

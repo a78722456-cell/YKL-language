@@ -119,6 +119,8 @@ pub enum HirExprKind {
         fields: Vec<(String, HirExpr)>,
     },
     FieldAccess(Box<HirExpr>, String), // Will become FieldId
+    Index(Box<HirExpr>, Box<HirExpr>),
+    ArrayInit(Vec<HirExpr>),
     BinaryOp(BinaryOp, Box<HirExpr>, Box<HirExpr>),
     UnaryOp(UnaryOp, Box<HirExpr>),
     Assign(Box<HirExpr>, Box<HirExpr>),

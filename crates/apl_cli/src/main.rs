@@ -25,6 +25,8 @@ enum Commands {
     Build {
         #[arg(long)]
         release: bool,
+        #[arg(long)]
+        bare_metal: bool,
         input: Option<String>,
     },
     /// Compile and run the project
@@ -84,14 +86,16 @@ fn main() -> anyhow::Result<()> {
                 name
             );
         }
-        Commands::Build { release, input } => {
+        Commands::Build { release, bare_metal, input } => {
             let profile = if release { "release" } else { "debug" };
+            let target_mode = if bare_metal { "bare-metal (freestanding)" } else { "native" };
             println!(
-                "{} compiling workspace [{}]...",
+                "{} compiling workspace [{} | {}]...",
                 "-->".green().bold(),
-                profile
+                profile,
+                target_mode
             );
-            compile_workspace(false, input.as_deref(), false, false, false, false, false, release)?;
+            compile_workspace(false, input.as_deref(), false, false, false, false, false, release, bare_metal)?;
             println!("{} build finished successfully!", "SUCCESS".green().bold());
         }
         Commands::Run { release, input, dump_hir, dump_mir, dump_cfg, dump_dataflow, dump_borrowck } => {
@@ -101,12 +105,12 @@ fn main() -> anyhow::Result<()> {
                 "-->".green().bold(),
                 profile
             );
-            compile_workspace(true, input.as_deref(), dump_hir, dump_mir, dump_cfg, dump_dataflow, dump_borrowck, release)?;
+            compile_workspace(true, input.as_deref(), dump_hir, dump_mir, dump_cfg, dump_dataflow, dump_borrowck, release, false)?;
             std::process::exit(0);
         }
         Commands::Test => {
             println!("{} running unit tests...", "-->".green().bold());
-            compile_workspace(false, None, false, false, false, false, false, false)?;
+            compile_workspace(false, None, false, false, false, false, false, false, false)?;
             println!("{} all tests passed!", "SUCCESS".green().bold());
         }
         Commands::Fmt => {
@@ -149,7 +153,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Lint => {
             println!("{} linting workspace...", "-->".green().bold());
-            compile_workspace(false, None, false, false, false, false, false, false)?;
+            compile_workspace(false, None, false, false, false, false, false, false, false)?;
             println!("{} 0 lint errors found.", "SUCCESS".green().bold());
         }
         Commands::Doc => {
@@ -192,6 +196,7 @@ fn build_native_executable(
     codegen_funcs: &[CodegenFunction],
     ast_prog: &apl_ast::Program,
     release: bool,
+    bare_metal: bool,
 ) -> anyhow::Result<()> {
     let mut structs = HashMap::new();
     let mut enums = HashMap::new();
@@ -207,9 +212,15 @@ fn build_native_executable(
         }
     }
 
-    let c_code = CCodeGenerator::generate_program(codegen_funcs, &structs, &enums);
+    let codegen = CCodeGenerator::new().with_bare_metal(bare_metal);
+    let c_code = codegen.generate_program(codegen_funcs, &structs, &enums);
     let c_file = "output.c";
     std::fs::write(c_file, &c_code)?;
+    if bare_metal {
+        println!("   {} generated bare-metal freestanding C11 source: {}", "-->".cyan().bold(), c_file);
+        println!("   {} ready for arm-none-eabi-gcc, avr-gcc, or esp-idf!", "note:".green().bold());
+        return Ok(());
+    }
     println!("   {} generated C11 source: {}", "-->".cyan().bold(), c_file);
 
     let bin_name = if cfg!(windows) { "app.exe" } else { "app" };
@@ -280,7 +291,7 @@ fn build_native_executable(
     Ok(())
 }
 
-fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dump_mir: bool, dump_cfg: bool, dump_dataflow: bool, dump_borrowck: bool, release: bool) -> anyhow::Result<()> {
+fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dump_mir: bool, dump_cfg: bool, dump_dataflow: bool, dump_borrowck: bool, release: bool, bare_metal: bool) -> anyhow::Result<()> {
     let source = if let Some(path) = input_file {
         let path = Path::new(path);
         if !path.is_file() {
@@ -527,7 +538,7 @@ fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dum
     }
 
     if !run_vm {
-        build_native_executable(&codegen_funcs, &prog, release)?;
+        build_native_executable(&codegen_funcs, &prog, release, bare_metal)?;
         return Ok(());
     }
 

@@ -214,6 +214,11 @@ impl Formatter {
                     BinaryOp::Gte => ">=",
                     BinaryOp::And => "&&",
                     BinaryOp::Or => "||",
+                    BinaryOp::BitAnd => "&",
+                    BinaryOp::BitOr => "|",
+                    BinaryOp::BitXor => "^",
+                    BinaryOp::Shl => "<<",
+                    BinaryOp::Shr => ">>",
                 };
                 self.output.push_str(&format!(" {} ", op_str));
                 self.format_expr(right);

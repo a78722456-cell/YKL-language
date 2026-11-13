@@ -161,6 +161,65 @@ impl SemanticAnalyzer {
         };
         self.functions
             .insert("alloc_array".to_string(), alloc_array_func);
+
+        let mmio_write_func = Function {
+            name: "mmio_write".to_string(),
+            generics: vec![],
+            params: vec![
+                Param { name: "addr".to_string(), ty: Type::I32, span: Span::dummy() },
+                Param { name: "val".to_string(), ty: Type::I32, span: Span::dummy() },
+            ],
+            return_type: Type::Void,
+            is_async: false,
+            is_pub: true,
+            body: Expr { kind: ExprKind::Block(vec![], None), span: Span::dummy() },
+            span: Span::dummy(),
+        };
+        self.functions.insert("mmio_write".to_string(), mmio_write_func);
+
+        let mmio_read_func = Function {
+            name: "mmio_read".to_string(),
+            generics: vec![],
+            params: vec![
+                Param { name: "addr".to_string(), ty: Type::I32, span: Span::dummy() },
+            ],
+            return_type: Type::I32,
+            is_async: false,
+            is_pub: true,
+            body: Expr { kind: ExprKind::Block(vec![], None), span: Span::dummy() },
+            span: Span::dummy(),
+        };
+        self.functions.insert("mmio_read".to_string(), mmio_read_func);
+
+        let bit_set_func = Function {
+            name: "bit_set".to_string(),
+            generics: vec![],
+            params: vec![
+                Param { name: "addr".to_string(), ty: Type::I32, span: Span::dummy() },
+                Param { name: "bit".to_string(), ty: Type::I32, span: Span::dummy() },
+            ],
+            return_type: Type::Void,
+            is_async: false,
+            is_pub: true,
+            body: Expr { kind: ExprKind::Block(vec![], None), span: Span::dummy() },
+            span: Span::dummy(),
+        };
+        self.functions.insert("bit_set".to_string(), bit_set_func);
+
+        let bit_clear_func = Function {
+            name: "bit_clear".to_string(),
+            generics: vec![],
+            params: vec![
+                Param { name: "addr".to_string(), ty: Type::I32, span: Span::dummy() },
+                Param { name: "bit".to_string(), ty: Type::I32, span: Span::dummy() },
+            ],
+            return_type: Type::Void,
+            is_async: false,
+            is_pub: true,
+            body: Expr { kind: ExprKind::Block(vec![], None), span: Span::dummy() },
+            span: Span::dummy(),
+        };
+        self.functions.insert("bit_clear".to_string(), bit_clear_func);
     }
 
     pub fn enter_scope(&mut self) {

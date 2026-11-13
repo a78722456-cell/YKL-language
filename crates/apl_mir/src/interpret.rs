@@ -79,6 +79,7 @@ pub struct Interpreter {
     function_names: NameMap,
     heap: Vec<Value>,
     pub output: Vec<String>,
+    pub mmio_memory: HashMap<u64, i64>,
     call_depth: usize,
 }
 
@@ -89,6 +90,7 @@ impl Interpreter {
             function_names: HashMap::new(),
             heap: Vec::new(),
             output: Vec::new(),
+            mmio_memory: HashMap::new(),
             call_depth: 0,
         }
     }
@@ -122,6 +124,31 @@ impl Interpreter {
             99002 => {
                 let out: Vec<String> = args.iter().map(|a| format!("{}", a)).collect();
                 eprintln!("{}", out.join(" "));
+                return Ok(Value::Void);
+            }
+            99010 => {
+                let addr = match args.get(0) { Some(Value::Int(a)) => *a as u64, _ => 0 };
+                let val = match args.get(1) { Some(Value::Int(v)) => *v, _ => 0 };
+                self.mmio_memory.insert(addr, val);
+                return Ok(Value::Void);
+            }
+            99011 => {
+                let addr = match args.get(0) { Some(Value::Int(a)) => *a as u64, _ => 0 };
+                let val = self.mmio_memory.get(&addr).copied().unwrap_or(0);
+                return Ok(Value::Int(val));
+            }
+            99012 => {
+                let addr = match args.get(0) { Some(Value::Int(a)) => *a as u64, _ => 0 };
+                let bit = match args.get(1) { Some(Value::Int(b)) => *b as u32, _ => 0 };
+                let entry = self.mmio_memory.entry(addr).or_insert(0);
+                *entry |= 1i64 << bit;
+                return Ok(Value::Void);
+            }
+            99013 => {
+                let addr = match args.get(0) { Some(Value::Int(a)) => *a as u64, _ => 0 };
+                let bit = match args.get(1) { Some(Value::Int(b)) => *b as u32, _ => 0 };
+                let entry = self.mmio_memory.entry(addr).or_insert(0);
+                *entry &= !(1i64 << bit);
                 return Ok(Value::Void);
             }
             _ => {}
@@ -408,6 +435,11 @@ impl Interpreter {
         match (op, l, r) {
             // Integer arithmetic
             (BinaryOp::Add, Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_add(b))),
+            (BinaryOp::BitAnd, Value::Int(a), Value::Int(b)) => Ok(Value::Int(a & b)),
+            (BinaryOp::BitOr, Value::Int(a), Value::Int(b)) => Ok(Value::Int(a | b)),
+            (BinaryOp::BitXor, Value::Int(a), Value::Int(b)) => Ok(Value::Int(a ^ b)),
+            (BinaryOp::Shl, Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_shl(b as u32))),
+            (BinaryOp::Shr, Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_shr(b as u32))),
             (BinaryOp::Sub, Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_sub(b))),
             (BinaryOp::Mul, Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_mul(b))),
             (BinaryOp::Div, Value::Int(a), Value::Int(b)) => {

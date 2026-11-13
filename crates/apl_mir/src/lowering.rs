@@ -376,6 +376,19 @@ impl MirBuilder {
                 }
                 Rvalue::Aggregate(ops)
             }
+            HirExprKind::Index(_base, _idx) => {
+                let place = self.lower_place(expr);
+                Rvalue::Use(Operand::Copy(place))
+            }
+            HirExprKind::ArrayInit(items) => {
+                let mut ops = Vec::new();
+                for item in items {
+                    let item_rv = self.lower_expr(item);
+                    let temp = self.make_temp(item_rv, item.span, item.ty.clone());
+                    ops.push(Operand::Copy(temp));
+                }
+                Rvalue::Aggregate(ops)
+            }
             _ => Rvalue::Use(Operand::Constant(Constant::Int(0, Type::Void))),
         }
     }
@@ -397,6 +410,19 @@ impl MirBuilder {
                     .and_then(|fields| fields.iter().position(|f| f == field_name))
                     .unwrap_or(0);
                 Place::Field { base: Box::new(base_place), field: FieldId(field_idx as u32) }
+            }
+            HirExprKind::Index(base, idx_expr) => {
+                let base_place = self.lower_place(base);
+                let idx_rv = self.lower_expr(idx_expr);
+                let idx_place = self.make_temp(idx_rv, idx_expr.span, idx_expr.ty.clone());
+                let idx_id = match idx_place {
+                    Place::Local(id) => id,
+                    _ => LocalId(0),
+                };
+                Place::Index {
+                    base: Box::new(base_place),
+                    index: idx_id,
+                }
             }
             _ => {
                 // If it's a complex expression, make a temp

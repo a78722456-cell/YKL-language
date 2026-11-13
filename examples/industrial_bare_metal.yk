@@ -1,0 +1,37 @@
+// Industrial Bare-Metal Firmware Example in Young Kazah Language (YKL / APL)
+// Demonstrates Stage 3 capabilities:
+// - Hex (0x...) and Binary (0b...) literals with separators
+// - Bitwise operators (&, |, ^, <<, >>)
+// - Direct Memory-Mapped I/O (MMIO) and bit manipulation intrinsics
+// - Fixed-size stack arrays [T; N] and indexing
+
+fn main() -> i32 {
+    let rcc_ahb1enr = 0x4002_3830;
+    let gpioa_moder = 0x4002_0000;
+    let gpioa_odr   = 0x4002_0014;
+
+    // 1. Enable GPIOA clock via MMIO write
+    mmio_write(rcc_ahb1enr, 0x01);
+
+    // 2. Set pin 5 as output (moder |= 1 << 10)
+    let moder_mask = 1 << 10;
+    let current_mode = mmio_read(gpioa_moder);
+    mmio_write(gpioa_moder, current_mode | moder_mask);
+
+    // 3. Bit manipulation intrinsics
+    bit_set(gpioa_odr, 5);
+    bit_clear(gpioa_odr, 5);
+
+    // 4. Fixed-size stack array and bitwise calculations
+    let sensor_pins: [i32; 4] = [0b0001, 0b0010, 0b0100, 0b1000];
+    let mut combined_mask = 0;
+    let mut i = 0;
+    while i < 4 {
+        combined_mask = combined_mask | sensor_pins[i];
+        i = i + 1;
+    }
+
+    // Verify bitwise operations
+    let shifted = (combined_mask << 2) >> 1; // 0b1111 (15) -> 30
+    return shifted;
+}
