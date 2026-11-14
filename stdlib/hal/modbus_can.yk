@@ -1,0 +1,28 @@
+@packed
+struct CanFrame {
+    cob_id: u16
+    dlc: u8
+    payload: [u8; 8]
+
+    // Извлекает 16-битный параметр (например, обороты двигателя RPM из байтов 0 и 1)
+    fn read_u16_be(offset: int) -> i32 {
+        hi := self.payload[offset]
+        lo := self.payload[offset + 1]
+        return (hi << 8) | lo
+    }
+}
+
+// Стандартный расчёт контрольной суммы Modbus RTU CRC-16 (полином 0xA001)
+fn modbus_crc16_step(crc_in: i32, byte_val: u8) -> i32 {
+    crc := crc_in ^ byte_val
+    i := 0
+    while i < 8 {
+        if (crc & 0x0001) != 0 {
+            crc = (crc >> 1) ^ 0xA001
+        } else {
+            crc = crc >> 1
+        }
+        i = i + 1
+    }
+    return crc
+}

@@ -6,7 +6,7 @@ members = [
     "crates/apl_parser",
     "crates/apl_sema",
     "crates/apl_mir",
-    # "crates/apl_opt",
+    "crates/apl_opt",
     # "crates/apl_vm",
     "crates/apl_codegen",
     "crates/apl_runtime",

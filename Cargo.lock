@@ -88,6 +88,7 @@ dependencies = [
  "apl_hir",
  "apl_lexer",
  "apl_mir",
+ "apl_opt",
  "apl_parser",
  "apl_runtime",
  "apl_sema",
@@ -155,6 +156,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "apl_opt"
+version = "0.1.0"
+dependencies = [
+ "apl_ast",
+ "apl_mir",
+ "thiserror",
+]
+
+[[package]]
 name = "apl_parser"
 version = "0.1.0"
 dependencies = [
@@ -200,6 +210,7 @@ dependencies = [
  "apl_hir",
  "apl_lexer",
  "apl_mir",
+ "apl_opt",
  "apl_parser",
  "apl_sema",
 ]

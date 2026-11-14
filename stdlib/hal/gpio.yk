@@ -1,0 +1,23 @@
+// Модуль управления цифровыми входами/выходами (GPIO) и промышленными реле
+// Базовые адреса портов STM32F4 (шина AHB1):
+// GPIOA_ODR = 0x4002_0014 | GPIOB_ODR = 0x4002_0414
+// GPIOC_ODR = 0x4002_0814 | GPIOD_ODR = 0x4002_0C14
+
+struct DigitalPin {
+    odr_addr: i32
+    idr_addr: i32
+    pin: u8
+
+    fn set_high() {
+        bit_set(self.odr_addr, self.pin)
+    }
+
+    fn set_low() {
+        bit_clear(self.odr_addr, self.pin)
+    }
+
+    fn read_state() -> i32 {
+        reg_val := mmio_read(self.idr_addr)
+        return (reg_val >> self.pin) & 0x01
+    }
+}

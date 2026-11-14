@@ -1,0 +1,24 @@
+// Модуль аппаратного ШИМ (PWM / DShot) для бесколлекторных моторов и приводов
+struct PwmChannel {
+    ccr_addr: i32         // Адрес регистра сравнения таймера (например TIM1_CCR1 = 0x4001_0034)
+    min_us: i32           // Минимальный импульс (обычно 1000 мкс — стоп мотора)
+    max_us: i32           // Максимальный импульс (обычно 2000 мкс — полный газ)
+
+    // Устанавливает тягу мотора в процентах (0..100%)
+    fn set_throttle_percent(percent: i32) {
+        clamped := percent
+        if clamped < 0 {
+            clamped = 0
+        }
+        if clamped > 100 {
+            clamped = 100
+        }
+        pulse := self.min_us + ((self.max_us - self.min_us) * clamped) / 100
+        mmio_write(self.ccr_addr, pulse)
+    }
+
+    // Экстренное отключение мотора (Failsafe)
+    fn emergency_disarm() {
+        mmio_write(self.ccr_addr, self.min_us)
+    }
+}

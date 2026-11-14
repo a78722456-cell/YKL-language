@@ -11,4 +11,5 @@ apl_sema = { path = "../apl_sema" }
 apl_hir = { path = "../apl_hir" }
 apl_mir = { path = "../apl_mir" }
 apl_borrowck = { path = "../apl_borrowck" }
+apl_opt = { path = "../apl_opt" }
 apl_codegen = { path = "../apl_codegen" }

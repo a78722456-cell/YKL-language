@@ -1,5 +1,5 @@
 
-use apl_hir::{LocalId, FunctionId};
+pub use apl_hir::{LocalId, FunctionId};
 use apl_ast::{Span, Type};
 pub mod cfg;
 pub mod printer;

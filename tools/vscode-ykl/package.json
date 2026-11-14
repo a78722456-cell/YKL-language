@@ -1,0 +1,27 @@
+{
+  "name": "vscode-ykl",
+  "displayName": "YKL (Young Kazah Language) Support",
+  "description": "Подсветка синтаксиса, сниппеты и поддержка системного языка YKL 2.0",
+  "version": "0.2.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "ykl",
+        "aliases": ["YKL", "Young Kazah Language"],
+        "extensions": [".yk"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ykl",
+        "scopeName": "source.ykl",
+        "path": "./syntaxes/ykl.tmLanguage.json"
+      }
+    ]
+  }
+}

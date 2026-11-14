@@ -1,0 +1,96 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "YKL",
+  "scopeName": "source.ykl",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#attributes" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#intrinsics" },
+    { "include": "#numbers" },
+    { "include": "#strings" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.ykl",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "name": "entity.name.tag.attribute.ykl",
+          "match": "@(packed|interrupt)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.ykl",
+          "match": "\\b(if|else|while|loop|for|match|return|break|continue|import|package|extern|pub|fn|struct|enum|trait|impl|let|mut)\\b"
+        },
+        {
+          "name": "variable.language.self.ykl",
+          "match": "\\b(self|Self|true|false)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.ykl",
+          "match": "\\b(int|byte|float|string|bool|void|i8|i16|i32|i64|isize|u8|u16|u32|u64|usize|f32|f64|char)\\b"
+        }
+      ]
+    },
+    "intrinsics": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.ykl",
+          "match": "\\b(print|println|eprint|mmio_write|mmio_read|bit_set|bit_clear)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.ykl",
+          "match": "\\b0[xX][0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.ykl",
+          "match": "\\b0[bB][01_]+\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.ykl",
+          "match": "\\b[0-9][0-9_]*(\\.[0-9_]+)?\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.ykl",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ykl",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.ykl",
+          "match": "(:=|->|=>|==|!=|<=|>=|<<|>>|&&|\\|\\||[=+\\-*/%&|^!<>])"
+        }
+      ]
+    }
+  }
+}

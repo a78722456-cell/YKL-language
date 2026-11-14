@@ -19,6 +19,34 @@ fn run_ykl_in_vm(source: &str) -> Result<Value, String> {
         return Err(format!("Parse: {}", err));
     }
 
+    let mut resolved_items = Vec::new();
+    for item in ast.items {
+        if let apl_ast::Item::Import(rel_path, _) = item {
+            let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            let ws_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap_or(manifest_dir);
+            let candidates = [
+                std::path::Path::new(&rel_path).to_path_buf(),
+                ws_root.join(&rel_path),
+                ws_root.join("stdlib").join(&rel_path),
+            ];
+            if let Some(target_path) = candidates.into_iter().find(|c| c.exists()) {
+                let sub_src = std::fs::read_to_string(&target_path).map_err(|e| format!("{}", e))?;
+                let mut sub_lexer = Lexer::new(&sub_src, 0);
+                let sub_tokens = sub_lexer.tokenize().map_err(|e| format!("{:?}", e))?;
+                let mut sub_parser = Parser::new(sub_tokens);
+                let sub_prog = sub_parser.parse_program();
+                for sub_item in sub_prog.items {
+                    if !matches!(sub_item, apl_ast::Item::Import(_, _)) {
+                        resolved_items.push(sub_item);
+                    }
+                }
+            }
+        } else {
+            resolved_items.push(item);
+        }
+    }
+    let ast = Program { items: resolved_items };
+
     let mut sema = SemanticAnalyzer::new();
     sema.analyze_program(&ast)
         .map_err(|errs| format!("Sema: {:?}", errs))?;
@@ -32,7 +60,8 @@ fn run_ykl_in_vm(source: &str) -> Result<Value, String> {
     let mut bc = BorrowChecker::new();
 
     for func in &hir.functions {
-        let mir_body = MirBuilder::new_with_structs(&hir.structs).build(func);
+        let mut mir_body = MirBuilder::new_with_structs(&hir.structs).build(func);
+        apl_opt::MirOptimizer::optimize_body(&mut mir_body);
         bc.check_body(&mir_body)
             .map_err(|errs| format!("BorrowCk: {:?}", errs))?;
         interp.register_function(func.id, &func.name, mir_body);
@@ -246,4 +275,35 @@ fn test_multifile_import_and_driver() {
     assert!(prog.items.iter().any(|item| matches!(item, apl_ast::Item::Import(path, _) if path.contains("stm32_gpio.yk"))));
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+
+#[test]
+fn test_stdlib_hal_drivers() {
+    let src = r#"
+        import "stdlib/hal/gpio.yk"
+        import "stdlib/hal/pwm.yk"
+        import "stdlib/hal/modbus_can.yk"
+
+        fn main() -> int {
+            pin := DigitalPin {
+                odr_addr: 0x4002_0C14,
+                idr_addr: 0x4002_0C10,
+                pin: 12
+            }
+            pin.set_high()
+
+            pwm := PwmChannel {
+                ccr_addr: 0x4001_0034,
+                min_us: 1000,
+                max_us: 2000
+            }
+            pwm.set_throttle_percent(50)
+
+            crc := modbus_crc16_step(0xFFFF, 0x01)
+            return crc
+        }
+    "#;
+    let res = run_ykl_in_vm(src).expect("Ошибка запуска HAL");
+    assert_ne!(res, Value::Int(0));
 }

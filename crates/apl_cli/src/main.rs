@@ -574,7 +574,8 @@ fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dum
         let builder = apl_mir::lowering::MirBuilder::new()
             .with_struct_fields(struct_fields.clone())
             .with_func_params(func_param_types.clone());
-        let mir_body = builder.build(func);
+        let mut mir_body = builder.build(func);
+        apl_opt::MirOptimizer::optimize_body(&mut mir_body);
 
         if let Err(e) = mir_body.validate() {
             eprintln!("{} MIR Validation Error in {}: {}", "warning:".yellow().bold(), func.name, e);

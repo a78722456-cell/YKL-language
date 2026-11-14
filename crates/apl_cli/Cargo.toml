@@ -14,7 +14,7 @@ apl_parser = { path = "../apl_parser" }
 apl_sema = { path = "../apl_sema" }
 apl_mir = { path = "../apl_mir" }
 apl_hir = { path = "../apl_hir" }
-# apl_opt = { path = "../apl_opt" }
+apl_opt = { path = "../apl_opt" }
 # apl_vm = { path = "../apl_vm" }
 apl_codegen = { path = "../apl_codegen" }
 apl_runtime = { path = "../apl_runtime" }
