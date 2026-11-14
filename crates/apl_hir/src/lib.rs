@@ -98,6 +98,14 @@ pub struct HirExpr {
 }
 
 #[derive(Debug, Clone)]
+pub struct HirMatchArm {
+    pub variant_tag: Option<u32>,
+    pub payload_vars: Vec<(LocalId, Type)>,
+    pub body: HirExpr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub enum HirExprKind {
     LiteralInt(i64),
     LiteralFloat(f64),
@@ -121,6 +129,15 @@ pub enum HirExprKind {
     FieldAccess(Box<HirExpr>, String), // Will become FieldId
     Index(Box<HirExpr>, Box<HirExpr>),
     ArrayInit(Vec<HirExpr>),
+    Match {
+        scrutinee: Box<HirExpr>,
+        arms: Vec<HirMatchArm>,
+    },
+    EnumInit {
+        enum_name: String,
+        tag: u32,
+        args: Vec<HirExpr>,
+    },
     BinaryOp(BinaryOp, Box<HirExpr>, Box<HirExpr>),
     UnaryOp(UnaryOp, Box<HirExpr>),
     Assign(Box<HirExpr>, Box<HirExpr>),

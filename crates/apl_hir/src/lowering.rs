@@ -267,9 +267,19 @@ impl HirLowering {
         }
         
         if self.errors.is_empty() {
+            let hir_structs: Vec<HirStruct> = self
+                .structs
+                .iter()
+                .map(|(name, st)| HirStruct {
+                    id: *self.struct_map.get(name).unwrap_or(&StructId(0)),
+                    name: name.clone(),
+                    fields: st.fields.iter().map(|f| HirField { name: f.name.clone(), ty: f.ty.clone() }).collect(),
+                    span: st.span,
+                })
+                .collect();
             Ok(HirProgram {
                 functions: hir_funcs,
-                structs: vec![],
+                structs: hir_structs,
                 enums: vec![],
             })
         } else {
@@ -323,10 +333,12 @@ impl HirLowering {
         }
         if let Some(e) = opt_expr {
             let h_e = self.lower_expr(e);
-            if is_func_body && self.current_fn_return_type.as_ref().map(|t| *t != Type::Void).unwrap_or(false) {
-                hir_stmts.push(HirStmt::Return(Some(h_e), e.span));
-            } else {
-                hir_stmts.push(HirStmt::Expr(h_e));
+            if is_func_body {
+                if self.current_fn_return_type.as_ref().map(|t| *t != Type::Void).unwrap_or(false) {
+                    hir_stmts.push(HirStmt::Return(Some(h_e), e.span));
+                } else {
+                    hir_stmts.push(HirStmt::Expr(h_e));
+                }
             }
         }
         self.leave_scope();
@@ -362,6 +374,21 @@ impl HirLowering {
     pub fn lower_expr(&mut self, expr: &apl_ast::Expr) -> HirExpr {
         match &expr.kind {
             ExprKind::Ident(name) => {
+                if let Some((en_name, var_name)) = name.split_once("::") {
+                    if let Some(en) = self.enums.get(en_name).cloned() {
+                        if let Some(tag) = en.variants.iter().position(|v| v.name == var_name) {
+                            return HirExpr {
+                                kind: HirExprKind::EnumInit {
+                                    enum_name: en_name.to_string(),
+                                    tag: tag as u32,
+                                    args: vec![],
+                                },
+                                ty: Type::Named(en_name.to_string(), vec![]),
+                                span: expr.span,
+                            };
+                        }
+                    }
+                }
                 if let Some(var) = self.get_var_clone(name) {
                     HirExpr {
                         kind: HirExprKind::LocalRef(var.id),
@@ -434,6 +461,21 @@ impl HirLowering {
                 }
                 
                 if let ExprKind::Ident(name) = &callee.kind {
+                    if let Some((en_name, var_name)) = name.split_once("::") {
+                        if let Some(en) = self.enums.get(en_name).cloned() {
+                            if let Some(tag) = en.variants.iter().position(|v| v.name == var_name) {
+                                return HirExpr {
+                                    kind: HirExprKind::EnumInit {
+                                        enum_name: en_name.to_string(),
+                                        tag: tag as u32,
+                                        args: hir_args,
+                                    },
+                                    ty: Type::Named(en_name.to_string(), vec![]),
+                                    span: expr.span,
+                                };
+                            }
+                        }
+                    }
                     if name == "print" || name == "println" || name == "eprint" {
                         let callee_id = match name.as_str() {
                             "print" => FunctionId(99000),
@@ -751,6 +793,105 @@ impl HirLowering {
                 HirExpr {
                     kind: HirExprKind::ArrayInit(h_items),
                     ty: Type::Array(Box::new(elem_ty), len),
+                    span: expr.span,
+                }
+            }
+            ExprKind::EnumVariant(enum_name, var_name, args) => {
+                let mut hir_args = Vec::new();
+                for arg in args {
+                    hir_args.push(self.lower_expr(arg));
+                }
+                let tag = if let Some(en) = self.enums.get(enum_name) {
+                    en.variants.iter().position(|v| v.name == *var_name).unwrap_or(0) as u32
+                } else {
+                    0
+                };
+                HirExpr {
+                    kind: HirExprKind::EnumInit {
+                        enum_name: enum_name.clone(),
+                        tag,
+                        args: hir_args,
+                    },
+                    ty: Type::Named(enum_name.clone(), vec![]),
+                    span: expr.span,
+                }
+            }
+            ExprKind::Match(target, arms) => {
+                let h_target = self.lower_expr(target);
+                let target_enum_name = match &h_target.ty {
+                    Type::Named(name, _) => Some(name.clone()),
+                    Type::Ref(inner) | Type::RefMut(inner) => match &**inner {
+                        Type::Named(name, _) => Some(name.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let mut hir_arms = Vec::new();
+                let mut res_ty = Type::Void;
+
+                for (i, arm) in arms.iter().enumerate() {
+                    self.enter_scope();
+                    let mut variant_tag = None;
+                    let mut payload_vars = Vec::new();
+
+                    match &arm.pattern {
+                        apl_ast::Pattern::EnumVariant(en_name, var_name, sub_pats) => {
+                            if let Some(en) = self.enums.get(en_name).cloned() {
+                                if let Some(idx) = en.variants.iter().position(|v| v.name == *var_name) {
+                                    variant_tag = Some(idx as u32);
+                                    let var = &en.variants[idx];
+                                    for (j, sub_pat) in sub_pats.iter().enumerate() {
+                                        if let apl_ast::Pattern::Ident(n) = sub_pat {
+                                            let pat_ty = var.types.get(j).cloned().unwrap_or(Type::I32);
+                                            if let Ok(loc_id) = self.define_var(n.clone(), pat_ty.clone(), false, expr.span) {
+                                                payload_vars.push((loc_id, pat_ty));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        apl_ast::Pattern::Ident(n) => {
+                            if let Some(ref en_name) = target_enum_name {
+                                if let Some(en) = self.enums.get(en_name).cloned() {
+                                    if let Some(idx) = en.variants.iter().position(|v| v.name == *n) {
+                                        variant_tag = Some(idx as u32);
+                                    } else {
+                                        let _ = self.define_var(n.clone(), h_target.ty.clone(), false, expr.span);
+                                    }
+                                } else {
+                                    let _ = self.define_var(n.clone(), h_target.ty.clone(), false, expr.span);
+                                }
+                            } else {
+                                let _ = self.define_var(n.clone(), h_target.ty.clone(), false, expr.span);
+                            }
+                        }
+                        apl_ast::Pattern::Wildcard => {
+                            variant_tag = None;
+                        }
+                        _ => {}
+                    }
+
+                    let h_body = self.lower_expr(&arm.body);
+                    if i == 0 {
+                        res_ty = h_body.ty.clone();
+                    }
+                    self.leave_scope();
+
+                    hir_arms.push(HirMatchArm {
+                        variant_tag,
+                        payload_vars,
+                        body: h_body,
+                        span: arm.body.span,
+                    });
+                }
+
+                HirExpr {
+                    kind: HirExprKind::Match {
+                        scrutinee: Box::new(h_target),
+                        arms: hir_arms,
+                    },
+                    ty: res_ty,
                     span: expr.span,
                 }
             }

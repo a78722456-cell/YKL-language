@@ -497,6 +497,16 @@ impl SemanticAnalyzer {
         if expected == actual {
             return true;
         }
+        match (expected, actual) {
+            (Type::I64, Type::I32) | (Type::I32, Type::I64) => return true,
+            (Type::U8, Type::I32) | (Type::I32, Type::U8) => return true,
+            (Type::U16, Type::I32) | (Type::I32, Type::U16) => return true,
+            (Type::U32, Type::I32) | (Type::I32, Type::U32) => return true,
+            (Type::I8, Type::I32) | (Type::I32, Type::I8) => return true,
+            (Type::I16, Type::I32) | (Type::I32, Type::I16) => return true,
+            (Type::F64, Type::F32) | (Type::F32, Type::F64) => return true,
+            _ => {}
+        }
         if let (Type::Named(n1, a1), Type::Named(n2, a2)) = (expected, actual) {
             if n1 == n2 && (a1.is_empty() || a2.is_empty()) { return true; }
         }
@@ -525,6 +535,13 @@ fn analyze_expr_inner(&mut self, expr: &Expr) -> Type {
                 Literal::Char(_) => Type::Char,
             },
             ExprKind::Ident(name) => {
+                if let Some((en_name, var_name)) = name.split_once("::") {
+                    if let Some(en) = self.enums.get(en_name).cloned() {
+                        if en.variants.iter().any(|v| v.name == var_name) {
+                            return Type::Named(en_name.to_string(), vec![]);
+                        }
+                    }
+                }
                 if let Some(var) = self.get_var_clone(name) {
                     let var_ty = var.ty.clone();
                     let is_copy = var.ty.is_copy();
@@ -754,7 +771,10 @@ fn analyze_expr_inner(&mut self, expr: &Expr) -> Type {
                 Type::Void
             }
             ExprKind::MethodCall(base, method_name, args) => {
+                let prev_borrow = self.is_borrow_context;
+                self.is_borrow_context = true;
                 let base_ty = self.analyze_expr(base);
+                self.is_borrow_context = prev_borrow;
                 let struct_name = Self::unwrap_struct_name(&base_ty).unwrap_or_default();
                 let mangled_name = format!("{}_{}", struct_name, method_name);
                 let func = match self.functions.get(&mangled_name).cloned() {

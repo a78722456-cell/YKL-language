@@ -1,0 +1,50 @@
+// Industrial CNC Controller & CAN Bus Module for STM32 / Bare-Metal
+// Implemented in YKL (Young Kazah Language)
+
+@packed
+struct CanPacket {
+    id: u16
+    dlc: u8
+    data: [u8; 8]
+}
+
+enum CncState {
+    Idle,
+    Homing,
+    Cutting(i32),
+    EmergencyStop(u8),
+}
+
+fn process_cnc(state: CncState) -> i32 {
+    match state {
+        CncState::Idle => {
+            return 0
+        }
+        CncState::Homing => {
+            // Set homing speed: 500 RPM
+            return 10
+        }
+        CncState::Cutting(rpm) => {
+            // Directly return commanded spindle RPM
+            return rpm
+        }
+        CncState::EmergencyStop(code) => {
+            // STM32 GPIOD ODR address: 0x4002_0C14
+            // Cut power to relays instantly
+            mmio_write(0x4002_0C14, 0x0000)
+            return 0 - code
+        }
+    }
+}
+
+fn main() -> int {
+    // 1. Initialize Emergency Relay GPIO on STM32 GPIOD (Pin 12)
+    // Turn on status LED / enable drive
+    bit_set(0x4002_0C14, 12)
+
+    // 2. State machine transition: start cutting cycle at 4500 RPM
+    state := CncState::Cutting(4500)
+    res := process_cnc(state)
+
+    return res
+}

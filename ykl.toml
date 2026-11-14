@@ -1,0 +1,10 @@
+[package]
+name = "young_kazah_app"
+version = "0.2.0"
+entry = "examples/industrial_cnc_firmware.yk"
+
+[build]
+target = "bare-metal"     # "native" или "bare-metal" (для STM32/AVR)
+compiler = "clang"        # "clang", "gcc", "arm-none-eabi-gcc", "avr-gcc"
+opt_level = 3             # 0, 2 или 3 (-O3)
+c_libs = ["m"]            # Дополнительные Си-библиотеки (-lm, -lcmsis и т.д.)

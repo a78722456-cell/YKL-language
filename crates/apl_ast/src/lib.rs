@@ -247,6 +247,7 @@ pub struct StructDecl {
     pub fields: Vec<StructField>,
     pub methods: Vec<Function>,
     pub is_pub: bool,
+    pub is_packed: bool,
     pub span: Span,
 }
 

@@ -1,0 +1,12 @@
+struct GpioPin {
+    port_odr_addr: int
+    pin_number: int
+
+    fn high() {
+        bit_set(self.port_odr_addr, self.pin_number)
+    }
+
+    fn low() {
+        bit_clear(self.port_odr_addr, self.pin_number)
+    }
+}

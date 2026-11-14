@@ -1,12 +1,13 @@
+use apl_ast::{Item, Program};
 use apl_codegen::{CCodeGenerator, CodegenFunction};
 use apl_lexer::Lexer;
 use apl_mir::interpret::{Interpreter, Value};
 use apl_parser::Parser;
 use clap::{Parser as ClapParser, Subcommand};
 use colored::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(ClapParser)]
@@ -213,7 +214,7 @@ fn build_native_executable(
     }
 
     let codegen = CCodeGenerator::new().with_bare_metal(bare_metal);
-    let c_code = codegen.generate_program(codegen_funcs, &structs, &enums);
+    let c_code = codegen.generate_c(codegen_funcs, &structs, &enums);
     let c_file = "output.c";
     std::fs::write(c_file, &c_code)?;
     if bare_metal {
@@ -291,105 +292,196 @@ fn build_native_executable(
     Ok(())
 }
 
+
+#[derive(Debug, Clone)]
+pub struct YklProjectConfig {
+    pub name: String,
+    pub version: String,
+    pub entry: String,
+    pub bare_metal: bool,
+    pub compiler: Option<String>,
+    pub opt_level: u8,
+    pub c_libs: Vec<String>,
+}
+
+impl Default for YklProjectConfig {
+    fn default() -> Self {
+        Self {
+            name: "app".to_string(),
+            version: "0.1.0".to_string(),
+            entry: "src/main.yk".to_string(),
+            bare_metal: false,
+            compiler: None,
+            opt_level: 3,
+            c_libs: Vec::new(),
+        }
+    }
+}
+
+impl YklProjectConfig {
+    /// Reads ykl.toml (or apl.toml) from current directory
+    pub fn load_from_dir(dir: &Path) -> Self {
+        let mut cfg = Self::default();
+        let toml_path = dir.join("ykl.toml");
+        let content = match std::fs::read_to_string(&toml_path) {
+            Ok(c) => c,
+            Err(_) => {
+                let apl_path = dir.join("apl.toml");
+                match std::fs::read_to_string(&apl_path) {
+                    Ok(c) => c,
+                    Err(_) => return cfg,
+                }
+            }
+        };
+
+        for raw_line in content.lines() {
+            let line = raw_line.split('#').next().unwrap_or("").trim();
+            if line.is_empty() || line.starts_with('[') {
+                continue;
+            }
+            if let Some((k, v)) = line.split_once('=') {
+                let key = k.trim();
+                let val = v.trim().trim_matches('"').trim_matches('\'');
+                match key {
+                    "name" => cfg.name = val.to_string(),
+                    "version" => cfg.version = val.to_string(),
+                    "entry" => cfg.entry = val.to_string(),
+                    "target" => cfg.bare_metal = val == "bare-metal" || val == "no_std",
+                    "compiler" => cfg.compiler = Some(val.to_string()),
+                    "opt_level" => cfg.opt_level = val.parse().unwrap_or(3),
+                    "c_libs" => {
+                        let inner = val.trim_start_matches('[').trim_end_matches(']');
+                        cfg.c_libs = inner
+                            .split(',')
+                            .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                    }
+                    _ => {}
+                }
+            }
+        }
+        cfg
+    }
+}
+
+/// Recursive module loader for YKL multi-file projects (`import "drivers/pid.yk"`)
+pub struct ModuleLoader {
+    pub visited: HashSet<PathBuf>,
+    pub loaded_files: Vec<(String, String)>,
+    pub merged_items: Vec<Item>,
+}
+
+impl ModuleLoader {
+    pub fn new() -> Self {
+        Self {
+            visited: HashSet::new(),
+            loaded_files: Vec::new(),
+            merged_items: Vec::new(),
+        }
+    }
+
+    pub fn load_root_program(&mut self, entry_path: &Path) -> anyhow::Result<Program> {
+        self.load_file_recursive(entry_path)?;
+        Ok(Program {
+            items: self.merged_items.clone(),
+        })
+    }
+
+    fn load_file_recursive(&mut self, file_path: &Path) -> anyhow::Result<()> {
+        let canonical = std::fs::canonicalize(file_path).unwrap_or_else(|_| file_path.to_path_buf());
+        if self.visited.contains(&canonical) {
+            return Ok(());
+        }
+        self.visited.insert(canonical.clone());
+
+        let source = std::fs::read_to_string(file_path).map_err(|e| {
+            anyhow::anyhow!(
+                "❌ Не удалось открыть модуль `{}`: {}\n💡 Подсказка: Проверьте путь в директиве `import`.",
+                file_path.display(),
+                e
+            )
+        })?;
+
+        let file_id = self.loaded_files.len();
+        let display_name = file_path.to_string_lossy().to_string();
+        self.loaded_files.push((display_name, source.clone()));
+
+        let mut lexer = Lexer::new(&source, file_id);
+        let tokens = match lexer.tokenize() {
+            Ok(t) => t,
+            Err(e) => anyhow::bail!("Lexical error in `{}`: {:?}", file_path.display(), e),
+        };
+        let mut parser = Parser::new(tokens);
+        let prog = parser.parse_program();
+        if !parser.errors.is_empty() {
+            anyhow::bail!("Parse errors in `{}`: {:?}", file_path.display(), parser.errors);
+        }
+
+        let parent_dir = file_path.parent().unwrap_or_else(|| Path::new("."));
+
+        for item in &prog.items {
+            if let Item::Import(import_rel_path, _) = item {
+                let mut target_path = parent_dir.join(import_rel_path);
+                if !target_path.exists() {
+                    let root_candidate = Path::new(import_rel_path).to_path_buf();
+                    let std_candidate = Path::new("stdlib").join(import_rel_path);
+                    if root_candidate.exists() {
+                        target_path = root_candidate;
+                    } else if std_candidate.exists() {
+                        target_path = std_candidate;
+                    }
+                }
+                self.load_file_recursive(&target_path)?;
+            }
+        }
+
+        for item in prog.items {
+            if !matches!(item, Item::Import(_, _)) {
+                self.merged_items.push(item);
+            }
+        }
+
+        Ok(())
+    }
+}
+
 fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dump_mir: bool, dump_cfg: bool, dump_dataflow: bool, dump_borrowck: bool, release: bool, bare_metal: bool) -> anyhow::Result<()> {
-    let source = if let Some(path) = input_file {
-        let path = Path::new(path);
+    let cfg = YklProjectConfig::load_from_dir(Path::new("."));
+    let bare_metal = bare_metal || cfg.bare_metal;
+
+    let target_file = if let Some(path) = input_file {
+        Some(PathBuf::from(path))
+    } else if Path::new(&cfg.entry).is_file() {
+        Some(PathBuf::from(&cfg.entry))
+    } else if Path::new("src/main.yk").is_file() {
+        Some(PathBuf::from("src/main.yk"))
+    } else if Path::new("test.yk").is_file() {
+        Some(PathBuf::from("test.yk"))
+    } else {
+        None
+    };
+
+    let mut prog = if let Some(ref path) = target_file {
         if !path.is_file() {
             anyhow::bail!("Input file not found: {}", path.display());
         }
-        fs::read_to_string(path)?
-    } else if Path::new("src/main.yk").is_file() {
-        fs::read_to_string("src/main.yk")?
-    } else if Path::new("test.yk").is_file() {
-        fs::read_to_string("test.yk")?
+        let mut loader = ModuleLoader::new();
+        loader.load_root_program(path)?
     } else {
-        "fn main() -> i32 { let a = 100; let b = 200; return a + b; }".to_string()
+        let source = "fn main() -> i32 { let a = 100; let b = 200; return a + b; }".to_string();
+        let mut lexer = Lexer::new(&source, 0);
+        let tokens = match lexer.tokenize() {
+            Ok(t) => t,
+            Err(e) => anyhow::bail!("Lexical error: {:?}", e),
+        };
+        let mut parser = Parser::new(tokens);
+        let p = parser.parse_program();
+        if !parser.errors.is_empty() {
+            anyhow::bail!("Parse errors: {:?}", parser.errors);
+        }
+        p
     };
-
-    let mut lexer = Lexer::new(&source, 0);
-    let tokens = match lexer.tokenize() {
-        Ok(t) => t,
-        Err(e) => anyhow::bail!("Lexical error: {:?}", e),
-    };
-
-    let mut parser = Parser::new(tokens);
-    let mut prog = parser.parse_program();
-    // println!("{:#?}", prog.items);
-    if !parser.errors.is_empty() {
-        anyhow::bail!("Parse errors: {:?}", parser.errors);
-    }
-
-    // Resolve imports (flat namespace for now)
-    let mut loaded_modules = std::collections::HashSet::new();
-    let mut pending_imports = Vec::new();
-    for item in &prog.items {
-        if let apl_ast::Item::Import(path, _) = item {
-            pending_imports.push(path.clone());
-        }
-    }
-
-    while let Some(import_path) = pending_imports.pop() {
-        if loaded_modules.contains(&import_path) {
-            continue;
-        }
-        loaded_modules.insert(import_path.clone());
-
-        let mut file_name = format!("{}.yk", import_path.replace("::", "/"));
-
-        // Handle Github package manager resolution
-        if import_path.starts_with("github.com/") {
-            let parts: Vec<&str> = import_path.split('/').collect();
-            if parts.len() >= 3 {
-                let repo_url = format!("https://{}/{}/{}", parts[0], parts[1], parts[2]);
-                let local_dir = format!(".ykl_modules/{}/{}/{}", parts[0], parts[1], parts[2]);
-                
-                if !Path::new(&local_dir).exists() {
-                    println!("{} downloading package '{}'...", "-->".green().bold(), repo_url);
-                    let _ = std::fs::create_dir_all(".ykl_modules");
-                    let status = std::process::Command::new("git")
-                        .args(&["clone", "--depth", "1", &repo_url, &local_dir])
-                        .status()?;
-                    if !status.success() {
-                        anyhow::bail!("Failed to download package: {}", repo_url);
-                    }
-                }
-
-                // Resolve the specific file within the module
-                let mut module_file = local_dir.clone();
-                if parts.len() > 3 {
-                    module_file.push('/');
-                    module_file.push_str(&parts[3..].join("/"));
-                } else {
-                    // Default to src/main.yk or lib.yk if just the repo is imported
-                    module_file.push_str("/lib");
-                }
-                module_file.push_str(".yk");
-                file_name = module_file;
-            }
-        }
-
-        if Path::new(&file_name).exists() {
-            let src = std::fs::read_to_string(&file_name)?;
-            let mut l = Lexer::new(&src, 0);
-            let t = match l.tokenize() {
-                Ok(t) => t,
-                Err(e) => anyhow::bail!("Lexical error in {}: {:?}", file_name, e),
-            };
-            let mut p = Parser::new(t);
-            let sub_prog = p.parse_program();
-            if !p.errors.is_empty() {
-                anyhow::bail!("Parse errors in {}: {:?}", file_name, p.errors);
-            }
-            for sub_item in sub_prog.items {
-                if let apl_ast::Item::Import(path, _) = &sub_item {
-                    pending_imports.push(path.clone());
-                }
-                prog.items.push(sub_item);
-            }
-        } else {
-            anyhow::bail!("Could not resolve import: {}", import_path);
-        }
-    }
 
     let mut current_package = String::new();
     for item in &mut prog.items {

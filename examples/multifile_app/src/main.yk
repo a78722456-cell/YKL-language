@@ -1,0 +1,10 @@
+import "../drivers/stm32_gpio.yk"
+
+fn main() -> int {
+    status_led := GpioPin {
+        port_odr_addr: 0x4002_0C14,
+        pin_number: 12
+    }
+    status_led.high()
+    return 0
+}

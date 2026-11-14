@@ -195,7 +195,11 @@ name = "apl_test"
 version = "0.1.0"
 dependencies = [
  "apl_ast",
+ "apl_borrowck",
+ "apl_codegen",
+ "apl_hir",
  "apl_lexer",
+ "apl_mir",
  "apl_parser",
  "apl_sema",
 ]

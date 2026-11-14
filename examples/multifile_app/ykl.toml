@@ -1,0 +1,10 @@
+[package]
+name = "drone_flight_control"
+version = "0.2.0"
+entry = "src/main.yk"
+
+[build]
+target = "bare-metal"     # "native" (для ПК .exe/ELF) или "bare-metal" (для STM32/AVR)
+compiler = "clang"        # "clang", "gcc", "arm-none-eabi-gcc", "avr-gcc"
+opt_level = 3             # 0, 2 или 3 (-O3)
+c_libs = ["m"]            # Дополнительные Си-библиотеки (-lm, -lcmsis и т.д.)

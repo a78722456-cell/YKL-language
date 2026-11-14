@@ -103,7 +103,20 @@ impl Parser {
     }
 
     fn parse_item(&mut self) -> Result<Item, ParseError> {
-        let is_pub = self.match_token(&TokenKind::Pub);
+        let mut is_pub = self.match_token(&TokenKind::Pub);
+        let mut is_packed = false;
+        if self.current().kind == TokenKind::At {
+            self.advance();
+            if let TokenKind::Ident(attr) = &self.current().kind {
+                if attr == "packed" {
+                    is_packed = true;
+                    self.advance();
+                }
+            }
+        }
+        if !is_pub {
+            is_pub = self.match_token(&TokenKind::Pub);
+        }
 
         match &self.current().kind {
             TokenKind::Package => {
@@ -128,15 +141,16 @@ impl Parser {
                 if let TokenKind::Literal(apl_ast::Literal::String(s)) = self.current().kind.clone() {
                     self.advance();
                     path = s;
-                } else {
-                    if let TokenKind::Ident(n) = self.advance().kind.clone() {
-                        path.push_str(&n);
-                    }
-                    while self.match_token(&TokenKind::ColonColon) {
-                        path.push_str("::");
-                        if let TokenKind::Ident(n) = self.advance().kind.clone() {
-                            path.push_str(&n);
+                } else if let TokenKind::Ident(n) = self.advance().kind.clone() {
+                    path.push_str(&n);
+                    while self.match_token(&TokenKind::ColonColon) || self.match_token(&TokenKind::Dot) || self.match_token(&TokenKind::Slash) {
+                        path.push('/');
+                        if let TokenKind::Ident(next_seg) = self.advance().kind.clone() {
+                            path.push_str(&next_seg);
                         }
+                    }
+                    if !path.ends_with(".yk") && !path.contains("::") {
+                        path.push_str(".yk");
                     }
                 }
                 self.match_token(&TokenKind::Semicolon);
@@ -147,7 +161,7 @@ impl Parser {
                 Ok(Item::Function(func))
             }
             TokenKind::Struct => {
-                let st = self.parse_struct(is_pub)?;
+                let st = self.parse_struct(is_pub, is_packed)?;
                 Ok(Item::Struct(st))
             }
             TokenKind::Enum => {
@@ -431,7 +445,7 @@ impl Parser {
         })
     }
 
-    fn parse_struct(&mut self, is_pub: bool) -> Result<StructDecl, ParseError> {
+    fn parse_struct(&mut self, is_pub: bool, is_packed: bool) -> Result<StructDecl, ParseError> {
         let start_span = self.current().span;
         self.expect(&TokenKind::Struct, "struct")?;
         let name = match self.advance().kind.clone() {
@@ -499,6 +513,7 @@ impl Parser {
             fields,
             methods,
             is_pub,
+            is_packed,
             span: start_span,
         })
     }

@@ -15,6 +15,15 @@ pub struct MirBuilder {
 }
 
 impl MirBuilder {
+    pub fn new_with_structs(structs: &[apl_hir::HirStruct]) -> Self {
+        let mut struct_fields = HashMap::new();
+        for st in structs {
+            let names = st.fields.iter().map(|f| f.name.clone()).collect();
+            struct_fields.insert(st.name.clone(), names);
+        }
+        Self::new().with_struct_fields(struct_fields)
+    }
+
     pub fn new() -> Self {
         let mut builder = Self {
             locals: Vec::new(),
@@ -388,6 +397,79 @@ impl MirBuilder {
                     ops.push(Operand::Copy(temp));
                 }
                 Rvalue::Aggregate(ops)
+            }
+            HirExprKind::EnumInit { enum_name: _, tag, args } => {
+                let mut ops = Vec::new();
+                ops.push(Operand::Constant(Constant::Int(*tag as i64, Type::I32)));
+                for arg in args {
+                    let a_rv = self.lower_expr(arg);
+                    let temp = self.make_temp(a_rv, arg.span, arg.ty.clone());
+                    ops.push(Operand::Copy(temp));
+                }
+                Rvalue::Aggregate(ops)
+            }
+            HirExprKind::Match { scrutinee, arms } => {
+                let scr_rv = self.lower_expr(scrutinee);
+                let scr_place = self.make_temp(scr_rv, scrutinee.span, scrutinee.ty.clone());
+
+                let tag_place = Place::Field {
+                    base: Box::new(scr_place.clone()),
+                    field: FieldId(0),
+                };
+
+                let merge_block = self.new_block();
+                let result_place = self.make_temp_uninit(expr.ty.clone(), expr.span);
+                let mut targets = Vec::new();
+                let unreachable_block = self.new_block();
+                self.blocks[unreachable_block.0 as usize].terminator = Terminator::Unreachable;
+                let mut otherwise_block = unreachable_block;
+                let switch_block = self.current_block;
+
+                for arm in arms {
+                    let arm_bb = self.new_block();
+                    self.current_block = arm_bb;
+
+                    for (idx, (var_id, var_ty)) in arm.payload_vars.iter().enumerate() {
+                        if !self.locals.iter().any(|l| l.id == *var_id) {
+                            self.add_local(*var_id, var_ty.clone(), arm.span, false, false);
+                        }
+                        self.blocks[self.current_block.0 as usize].statements.push(Statement::StorageLive(*var_id, arm.span));
+                        let payload_place = Place::Field {
+                            base: Box::new(scr_place.clone()),
+                            field: FieldId((1 + idx) as u32),
+                        };
+                        self.blocks[self.current_block.0 as usize].statements.push(Statement::Assign(
+                            Place::Local(*var_id),
+                            Rvalue::Use(Operand::Copy(payload_place)),
+                            arm.span,
+                        ));
+                    }
+
+                    let arm_rv = self.lower_expr(&arm.body);
+                    if matches!(self.blocks[self.current_block.0 as usize].terminator, Terminator::Unreachable) {
+                        self.blocks[self.current_block.0 as usize].statements.push(Statement::Assign(
+                            result_place.clone(),
+                            arm_rv,
+                            arm.span,
+                        ));
+                        self.blocks[self.current_block.0 as usize].terminator = Terminator::Goto(merge_block);
+                    }
+
+                    if let Some(tag_id) = arm.variant_tag {
+                        targets.push((tag_id as u128, arm_bb));
+                    } else {
+                        otherwise_block = arm_bb;
+                    }
+                }
+
+                self.blocks[switch_block.0 as usize].terminator = Terminator::SwitchInt {
+                    discriminant: Operand::Copy(tag_place),
+                    targets,
+                    otherwise: otherwise_block,
+                };
+
+                self.current_block = merge_block;
+                Rvalue::Use(Operand::Copy(result_place))
             }
             _ => Rvalue::Use(Operand::Constant(Constant::Int(0, Type::Void))),
         }

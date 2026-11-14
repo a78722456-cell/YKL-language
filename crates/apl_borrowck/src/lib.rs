@@ -205,3 +205,22 @@ fn check_borrows(
         }
     }
 }
+
+
+#[derive(Debug, Clone, Default)]
+pub struct BorrowChecker;
+
+impl BorrowChecker {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn check_body(&mut self, body: &MirBody) -> Result<(), Vec<BorrowckError>> {
+        let errs = check_body(body);
+        if errs.is_empty() {
+            Ok(())
+        } else {
+            Err(errs)
+        }
+    }
+}
