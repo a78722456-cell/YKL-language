@@ -211,6 +211,13 @@ pub enum Stmt {
         init: Expr,
         span: Span,
     },
+    For {
+        var: String,
+        start: Expr,
+        end: Expr,
+        body: Expr,
+        span: Span,
+    },
     Expr(Expr),
 }
 
@@ -229,6 +236,7 @@ pub struct Function {
     pub return_type: Type,
     pub is_async: bool,
     pub is_pub: bool,
+    pub is_interrupt: bool,
     pub body: Expr,
     pub span: Span,
 }

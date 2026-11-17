@@ -105,11 +105,15 @@ impl Parser {
     fn parse_item(&mut self) -> Result<Item, ParseError> {
         let mut is_pub = self.match_token(&TokenKind::Pub);
         let mut is_packed = false;
-        if self.current().kind == TokenKind::At {
+        let mut is_interrupt = false;
+        while self.current().kind == TokenKind::At {
             self.advance();
             if let TokenKind::Ident(attr) = &self.current().kind {
                 if attr == "packed" {
                     is_packed = true;
+                    self.advance();
+                } else if attr == "interrupt" {
+                    is_interrupt = true;
                     self.advance();
                 }
             }
@@ -157,7 +161,8 @@ impl Parser {
                 Ok(Item::Import(path, span_start))
             }
             TokenKind::Async | TokenKind::Fn => {
-                let func = self.parse_function(is_pub)?;
+                let mut func = self.parse_function(is_pub)?;
+                func.is_interrupt = is_interrupt;
                 Ok(Item::Function(func))
             }
             TokenKind::Struct => {
@@ -440,6 +445,7 @@ impl Parser {
             return_type,
             is_async,
             is_pub,
+            is_interrupt: false,
             body,
             span: start_span,
         })
@@ -684,6 +690,30 @@ impl Parser {
                     mutability: mut_flag,
                     ty,
                     init,
+                    span: start_span,
+                });
+            } else if self.match_token(&TokenKind::For) {
+                let var = match self.advance().kind.clone() {
+                    TokenKind::Ident(n) => n,
+                    other => {
+                        return Err(ParseError::UnexpectedToken(
+                            other,
+                            start_span,
+                            "loop variable",
+                        ));
+                    }
+                };
+                self.expect(&TokenKind::In, "in")?;
+                let start = self.parse_expr()?;
+                self.expect(&TokenKind::DotDot, "..")?;
+                let end = self.parse_expr()?;
+                let body = self.parse_block_expr()?;
+                self.match_token(&TokenKind::Semicolon);
+                stmts.push(Stmt::For {
+                    var,
+                    start,
+                    end,
+                    body,
                     span: start_span,
                 });
             } else if let TokenKind::Ident(var_name) = self.current().kind.clone() {

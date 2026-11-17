@@ -22,6 +22,10 @@ pub enum SemaError {
     UnknownField(String, String, Span),
     #[error("❌ Ошибка: break или continue вне цикла на {0:?}")]
     BreakOutsideLoop(Span),
+    #[error("❌ Ошибка: Бесконечный цикл loop запрещен внутри обработчика прерывания @interrupt на {0:?}\n💡 Подсказка: Прерывание должно выполняться максимально быстро и завершаться.")]
+    InterruptLoopForbidden(Span),
+    #[error("❌ Ошибка: Обработчик прерывания @interrupt не может возвращать значение на {0:?}\n💡 Подсказка: Сигнатура должна быть `fn ...() -> void` или `fn ...()`.")]
+    InterruptReturnsValue(Span),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,13 +134,17 @@ impl SemanticAnalyzer {
             return_type: Type::Void,
             is_async: false,
             is_pub: true,
+            is_interrupt: false,
             body: Expr {
                 kind: ExprKind::Block(vec![], None),
                 span: Span::dummy(),
             },
             span: Span::dummy(),
         };
-        self.functions.insert("println".to_string(), println_func);
+        self.functions.insert("println".to_string(), println_func.clone());
+        let mut print_func = println_func;
+        print_func.name = "print".to_string();
+        self.functions.insert("print".to_string(), print_func);
 
         let alloc_array_func = Function {
             name: "alloc_array".to_string(),
@@ -153,6 +161,7 @@ impl SemanticAnalyzer {
             return_type: Type::Slice(Box::new(Type::Named("T".to_string(), vec![]))),
             is_async: false,
             is_pub: true,
+            is_interrupt: false,
             body: Expr {
                 kind: ExprKind::Block(vec![], None),
                 span: Span::dummy(),
@@ -172,6 +181,7 @@ impl SemanticAnalyzer {
             return_type: Type::Void,
             is_async: false,
             is_pub: true,
+            is_interrupt: false,
             body: Expr { kind: ExprKind::Block(vec![], None), span: Span::dummy() },
             span: Span::dummy(),
         };
@@ -186,6 +196,7 @@ impl SemanticAnalyzer {
             return_type: Type::I32,
             is_async: false,
             is_pub: true,
+            is_interrupt: false,
             body: Expr { kind: ExprKind::Block(vec![], None), span: Span::dummy() },
             span: Span::dummy(),
         };
@@ -201,6 +212,7 @@ impl SemanticAnalyzer {
             return_type: Type::Void,
             is_async: false,
             is_pub: true,
+            is_interrupt: false,
             body: Expr { kind: ExprKind::Block(vec![], None), span: Span::dummy() },
             span: Span::dummy(),
         };
@@ -216,6 +228,7 @@ impl SemanticAnalyzer {
             return_type: Type::Void,
             is_async: false,
             is_pub: true,
+            is_interrupt: false,
             body: Expr { kind: ExprKind::Block(vec![], None), span: Span::dummy() },
             span: Span::dummy(),
         };
@@ -360,6 +373,23 @@ impl SemanticAnalyzer {
 
 
     pub fn analyze_function(&mut self, func: &Function) {
+        if func.is_interrupt {
+            if func.return_type != Type::Void {
+                self.errors.push(SemaError::InterruptReturnsValue(func.span));
+            }
+            if let ExprKind::Block(stmts, opt_e) = &func.body.kind {
+                for stmt in stmts {
+                    if let Stmt::Expr(Expr { kind: ExprKind::Loop(_), span }) = stmt {
+                        self.errors.push(SemaError::InterruptLoopForbidden(*span));
+                    }
+                }
+                if let Some(e) = opt_e {
+                    if let ExprKind::Loop(_) = &e.kind {
+                        self.errors.push(SemaError::InterruptLoopForbidden(e.span));
+                    }
+                }
+            }
+        }
         self.scopes.push(Scope { vars: HashMap::new() });
         for param in &func.params {
             self.define_var(param.name.clone(), param.ty.clone(), false, param.span).unwrap();
@@ -888,6 +918,23 @@ fn analyze_expr_inner(&mut self, expr: &Expr) -> Type {
                             }
                             let var_ty = ty.clone().unwrap_or(init_ty);
                             let _ = self.define_var(name.clone(), var_ty, *mutability, *span);
+                        }
+                        Stmt::For {
+                            var,
+                            start,
+                            end,
+                            body,
+                            span,
+                        } => {
+                            let start_ty = self.analyze_expr(start);
+                            let _end_ty = self.analyze_expr(end);
+                            let iter_ty = if start_ty != Type::Void { start_ty } else { Type::I32 };
+                            self.enter_scope();
+                            let _ = self.define_var(var.clone(), iter_ty, true, *span);
+                            self.loop_depth += 1;
+                            self.analyze_expr(body);
+                            self.loop_depth -= 1;
+                            self.leave_scope();
                         }
                         Stmt::Expr(e) => {
                             self.analyze_expr(e);

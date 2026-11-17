@@ -307,3 +307,52 @@ fn test_stdlib_hal_drivers() {
     let res = run_ykl_in_vm(src).expect("Ошибка запуска HAL");
     assert_ne!(res, Value::Int(0));
 }
+
+#[test]
+fn test_full_industrial_demo() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let ws_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap_or(manifest_dir);
+    let demo_path = ws_root.join("examples").join("full_industrial_demo.yk");
+    let src = std::fs::read_to_string(&demo_path).expect("Не удалось прочитать full_industrial_demo.yk");
+
+    let res = run_ykl_in_vm(&src).expect("Ошибка выполнения full_industrial_demo.yk в MIR VM");
+    assert_eq!(res, Value::Int(0));
+
+    let c_code = compile_ykl_to_c(&src, true);
+    assert!(c_code.contains("struct __attribute__((packed)) CanTelemetryFrame"));
+    assert!(c_code.contains("void TIM2_IRQHandler(void);"));
+    assert!(c_code.contains("void IndustrialPlc_update_conveyor_speed"));
+}
+
+#[test]
+fn test_interrupt_safety_checks() {
+    // 1. @interrupt returning non-void must be rejected
+    let bad_ret = r#"
+        @interrupt
+        fn BAD_IRQHandler() -> int {
+            return 42
+        }
+
+        fn main() -> int {
+            return 0
+        }
+    "#;
+    let err_ret = run_ykl_in_vm(bad_ret);
+    assert!(err_ret.is_err(), "@interrupt with non-void return should be rejected");
+
+    // 2. @interrupt containing infinite loop must be rejected
+    let bad_loop = r#"
+        @interrupt
+        fn HANG_IRQHandler() {
+            loop {
+                bit_set(0x4000_0000, 1)
+            }
+        }
+
+        fn main() -> int {
+            return 0
+        }
+    "#;
+    let err_loop = run_ykl_in_vm(bad_loop);
+    assert!(err_loop.is_err(), "@interrupt containing infinite loop should be rejected");
+}

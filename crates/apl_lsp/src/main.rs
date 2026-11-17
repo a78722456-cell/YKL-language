@@ -203,6 +203,8 @@ impl Backend {
                         | apl_sema::SemaError::DuplicateSymbol(_, s)
                         | apl_sema::SemaError::MissingField(_, _, s)
                         | apl_sema::SemaError::UnknownField(_, _, s)
+                        | apl_sema::SemaError::InterruptLoopForbidden(s)
+                        | apl_sema::SemaError::InterruptReturnsValue(s)
                         | apl_sema::SemaError::BreakOutsideLoop(s) => *s,
                     };
                     diagnostics.push(Diagnostic {

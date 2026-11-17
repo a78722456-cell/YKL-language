@@ -43,6 +43,10 @@ impl Formatter {
     }
 
     fn format_function(&mut self, func: &Function) {
+        if func.is_interrupt {
+            self.output.push_str("@interrupt\n");
+            self.push_indent();
+        }
         if func.is_pub {
             self.output.push_str("pub ");
         }
@@ -182,6 +186,14 @@ impl Formatter {
                 }
                 self.output.push_str(" = ");
                 self.format_expr(init);
+            }
+            Stmt::For { var, start, end, body, span: _ } => {
+                self.output.push_str(&format!("for {} in ", var));
+                self.format_expr(start);
+                self.output.push_str("..");
+                self.format_expr(end);
+                self.output.push_str(" ");
+                self.format_expr(body);
             }
         }
     }

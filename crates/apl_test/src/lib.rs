@@ -97,6 +97,16 @@ impl Diagnostic {
             SemaError::BreakOutsideLoop(s) => {
                 ("break or continue outside of loop".to_string(), s, "E0500")
             }
+            SemaError::InterruptLoopForbidden(s) => (
+                "infinite loop is forbidden inside @interrupt handler".to_string(),
+                s,
+                "E0601",
+            ),
+            SemaError::InterruptReturnsValue(s) => (
+                "@interrupt handler must return void".to_string(),
+                s,
+                "E0602",
+            ),
         };
         Self {
             severity: Severity::Error,

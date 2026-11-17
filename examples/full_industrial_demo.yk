@@ -1,0 +1,64 @@
+// Full Industrial & UAV Firmware Suite Demo in Young Kazah Language (YKL / APL)
+// Demonstrates all Stage 1-6 capabilities:
+// - @packed struct CanTelemetryFrame
+// - Struct with methods (self mutation & auto-borrowing)
+// - Bounded industrial for-in loop (for step in 0..8)
+// - Hardware interrupt handler (@interrupt fn TIM2_IRQHandler)
+// - Bitwise operators, hex/binary literals, and CRC computation
+// - Direct Memory-Mapped I/O (mmio_write, mmio_read, bit_set, bit_clear)
+
+@packed
+struct CanTelemetryFrame {
+    node_id: u16
+    dlc: u8
+    payload: [u8; 8]
+}
+
+struct IndustrialPlc {
+    gpio_odr: i32
+    pwm_ccr1: i32
+    cycle_count: int
+
+    fn trigger_alarm_led() {
+        bit_set(self.gpio_odr, 12)
+    }
+
+    fn update_conveyor_speed(rpm: int) {
+        self.cycle_count = self.cycle_count + 1
+        mmio_write(self.pwm_ccr1, rpm & 0x07FF)
+    }
+}
+
+// Аппаратный обработчик прерывания таймера STM32 (проверяется компилятором на отсутствие loop!)
+@interrupt
+fn TIM2_IRQHandler() {
+    bit_clear(0x4000_0010, 0)
+}
+
+fn main() -> int {
+    println("=== YKL Full Industrial & UAV Firmware Suite ===")
+
+    plc := IndustrialPlc {
+        gpio_odr: 0x4002_0C14,
+        pwm_ccr1: 0x4001_0034,
+        cycle_count: 0
+    }
+
+    plc.trigger_alarm_led()
+
+    // Промышленный цикл for с гарантированной границей итераций
+    crc := 0xFFFF
+    for step in 0..8 {
+        plc.update_conveyor_speed(1000 + step * 50)
+        crc = (crc >> 1) ^ (0xA001 & step)
+    }
+
+    print("Выполнено циклов ПЛК: ")
+    println(plc.cycle_count)
+    print("Итоговый регистр ШИМ привода: ")
+    println(mmio_read(0x4001_0034))
+    print("Контрольная сигнатура CRC: ")
+    println(crc)
+
+    return 0
+}

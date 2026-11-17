@@ -1,6 +1,6 @@
 
 use crate::*;
-use apl_ast::{ExprKind, Item, Program, Span, Stmt, Type};
+use apl_ast::{BinaryOp, ExprKind, Item, Program, Span, Stmt, Type};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -359,6 +359,117 @@ impl HirLowering {
                     init: Some(hir_init),
                     span: *span,
                 })
+            }
+            Stmt::For {
+                var,
+                start,
+                end,
+                body,
+                span,
+            } => {
+                self.enter_scope();
+                let hir_start = self.lower_expr(start);
+                let iter_ty = if hir_start.ty != Type::Void {
+                    hir_start.ty.clone()
+                } else {
+                    Type::I32
+                };
+                let id = self
+                    .define_var(var.clone(), iter_ty.clone(), true, *span)
+                    .unwrap_or(LocalId(0));
+                let init_stmt = HirStmt::Let {
+                    id,
+                    name: var.clone(),
+                    mutability: true,
+                    ty: iter_ty.clone(),
+                    init: Some(hir_start),
+                    span: *span,
+                };
+                let hir_end = self.lower_expr(end);
+                let var_ref = HirExpr {
+                    kind: HirExprKind::LocalRef(id),
+                    ty: iter_ty.clone(),
+                    span: *span,
+                };
+                let cond_expr = HirExpr {
+                    kind: HirExprKind::BinaryOp(
+                        BinaryOp::Lt,
+                        Box::new(var_ref.clone()),
+                        Box::new(hir_end),
+                    ),
+                    ty: Type::Bool,
+                    span: *span,
+                };
+
+                let mut body_stmts = Vec::new();
+                if let ExprKind::Block(b_stmts, b_trailing) = &body.kind {
+                    for s in b_stmts {
+                        if let Some(hs) = self.lower_stmt(s) {
+                            body_stmts.push(hs);
+                        }
+                    }
+                    if let Some(trailing) = b_trailing {
+                        let h_tr = self.lower_expr(trailing);
+                        body_stmts.push(HirStmt::Expr(h_tr));
+                    }
+                } else {
+                    let h_b = self.lower_expr(body);
+                    body_stmts.push(HirStmt::Expr(h_b));
+                }
+
+                let inc_expr = HirExpr {
+                    kind: HirExprKind::Assign(
+                        Box::new(var_ref.clone()),
+                        Box::new(HirExpr {
+                            kind: HirExprKind::BinaryOp(
+                                BinaryOp::Add,
+                                Box::new(var_ref),
+                                Box::new(HirExpr {
+                                    kind: HirExprKind::LiteralInt(1),
+                                    ty: iter_ty.clone(),
+                                    span: *span,
+                                }),
+                            ),
+                            ty: iter_ty,
+                            span: *span,
+                        }),
+                    ),
+                    ty: Type::Void,
+                    span: *span,
+                };
+                body_stmts.push(HirStmt::Expr(inc_expr));
+
+                let while_expr = HirExpr {
+                    kind: HirExprKind::While {
+                        cond: Box::new(cond_expr),
+                        body: Box::new(HirExpr {
+                            kind: HirExprKind::Block(
+                                HirBlock {
+                                    stmts: body_stmts,
+                                    span: body.span,
+                                },
+                                None,
+                            ),
+                            ty: Type::Void,
+                            span: body.span,
+                        }),
+                    },
+                    ty: Type::Void,
+                    span: *span,
+                };
+                self.leave_scope();
+
+                Some(HirStmt::Expr(HirExpr {
+                    kind: HirExprKind::Block(
+                        HirBlock {
+                            stmts: vec![init_stmt, HirStmt::Expr(while_expr)],
+                            span: *span,
+                        },
+                        None,
+                    ),
+                    ty: Type::Void,
+                    span: *span,
+                }))
             }
             Stmt::Expr(expr) => {
                 if let ExprKind::Return(opt_val) = &expr.kind {
