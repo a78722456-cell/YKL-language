@@ -625,6 +625,7 @@ fn compile_workspace(run_vm: bool, input_file: Option<&str>, dump_hir: bool, dum
             id: func.id,
             name: func.name.clone(),
             return_type: func.return_type.clone(),
+            is_interrupt: func.is_interrupt,
             body: mir_body.clone(),
         });
         interpreter.register_function(func.id, &func.name, mir_body);

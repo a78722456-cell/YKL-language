@@ -59,6 +59,7 @@ pub struct HirFunction {
     pub return_type: Type,
     pub body: Option<HirBlock>, // None if extern
     pub is_extern: bool,
+    pub is_interrupt: bool,
     pub span: Span,
 }
 

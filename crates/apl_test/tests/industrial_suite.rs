@@ -86,6 +86,7 @@ fn compile_ykl_to_c(source: &str, bare_metal: bool) -> String {
             id: f.id,
             name: f.name.clone(),
             return_type: f.return_type.clone(),
+            is_interrupt: f.is_interrupt,
             body: MirBuilder::new_with_structs(&hir.structs).build(f),
         });
     }

@@ -10,6 +10,7 @@ pub struct CodegenFunction {
     pub id: FunctionId,
     pub name: String,
     pub return_type: Type,
+    pub is_interrupt: bool,
     pub body: MirBody,
 }
 

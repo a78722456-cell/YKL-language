@@ -319,6 +319,7 @@ impl HirLowering {
             return_type: func.return_type.clone(),
             body,
             is_extern: false,
+            is_interrupt: func.is_interrupt,
             span: func.span,
         })
     }
